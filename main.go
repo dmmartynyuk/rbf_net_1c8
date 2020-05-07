@@ -518,48 +518,75 @@ func getPredict(c *gin.Context) {
 }
 
 func setSales(c *gin.Context) {
-	goodsuid := c.Param("goods")
-	storeuid := c.Param("store")
 
-	period := c.PostForm("period")
-	if !checkDate("2006-02-01", period) {
-		c.JSON(http.StatusNotAcceptable, gin.H{"status": http.StatusNotAcceptable, "message": "bad format date. looking for 2006-02-01"})
-		return
+	ids := c.DefaultQuery("id", "0")
+	id, err := strconv.Atoi(ids)
+	if err != nil {
+		id = 0
 	}
-	tipmov := c.DefaultPostForm("tip", "S")
 
-	cnt, err := strconv.ParseFloat(c.PostForm("cnt"), 64)
-	if err != nil {
-		c.JSON(http.StatusNotAcceptable, gin.H{"status": http.StatusNotAcceptable, "message": "bad format float for cnt " + err.Error()})
+	type Sales struct {
+		Uidstore   string  `json:"uidstore" binding:"required"`
+		Uidgoods   string  `json:"uidgoods" binding:"required"`
+		GroupGoods string  `json:"groupGoods"`
+		Period     string  `json:"period" binding:"required"`
+		Tipmov     string  `json:"tipmov" binding:"required"`
+		Cnt        float64 `json:"cnt" binding:"required"`
+		Summa      float64 `json:"summa" binding:"required"`
+		Margin     float64 `json:"margin" binding:"required"`
+		Balance    float64 `json:"balance" binding:"required"`
+		Prevdays   string  `json:"prevd" binding:"required"`
+		Zerodays   string  `json:"zerod" binding:"required"`
+	}
+	var sm []Sales
+	// in this case proper binding will be automatically selected
+	if err := c.ShouldBindJSON(&sm); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "error": true, "message": "bad request " + err.Error()})
 		return
 	}
-	summa, err := strconv.ParseFloat(c.PostForm("sum"), 64)
-	if err != nil {
-		c.JSON(http.StatusNotAcceptable, gin.H{"status": http.StatusNotAcceptable, "message": "bad format float for sum " + err.Error()})
-		return
+	/*
+		CREATE TABLE "goodsmov" (
+			"id"	integer,
+			"uidStore"	text NOT NULL,
+			"uidGoods"	text NOT NULL,
+			"groupGoods"	text,
+			"period"	text NOT NULL,
+			"cnt"	real,
+			"summa"	integer,
+			"margin"	real,
+			"balance"	real,
+			"prevdays"	integer,
+			"zerodays"	integer,
+			"tipmov"	TEXT DEFAULT 'S',
+			PRIMARY KEY("id")
+		)
+	*/
+	matr := make([]map[string]interface{}, 0, 256)
+	for _, v := range sm {
+		m := make(map[string]interface{})
+		if id > 0 {
+			m["id"] = id
+		}
+		m["uidStore"] = v.Uidstore
+		m["uidGoods"] = v.Uidgoods
+		m["period"] = v.Period
+		m["tipmov"] = v.Tipmov
+		m["groupGoods"] = v.GroupGoods
+		m["cnt"] = 0
+		m["summa"] = v.Summa
+		m["margin"] = v.Margin
+		m["balance"] = v.Balance
+		m["prevdays"] = v.Prevdays
+		m["zerodays"] = v.Zerodays
+		matr = append(matr, m)
 	}
-	margin, err := strconv.ParseFloat(c.PostForm("margin"), 64)
+	err = models.InsRepSales(matr)
 	if err != nil {
-		margin = 10.0
-	}
-	balance, err := strconv.ParseFloat(c.PostForm("balance"), 64)
-	if err != nil {
-		balance = 0.0
-	}
-	prevd, err := strconv.Atoi(c.PostForm("prevd"))
-	if err != nil {
-		prevd = 1
-	}
-	zerodays, err := strconv.Atoi(c.PostForm("zerod"))
-	if err != nil {
-		zerodays = 0
-	}
-	err = models.SaveSales(storeuid, goodsuid, period, tipmov, cnt, summa, margin, balance, prevd, zerodays)
-	if err != nil {
-		c.JSON(http.StatusNotAcceptable, gin.H{"status": http.StatusNotAcceptable, "message": "bad " + err.Error()})
+		c.JSON(http.StatusNotAcceptable, gin.H{"status": http.StatusNotAcceptable, "error": true, "message": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "ok"})
+
 }
 
 //makeOrders делает таблицу заказов из predict
@@ -674,6 +701,10 @@ func makeOrders() {
 			if cntzak+merch.Balance > merch.MaxBalance {
 				cntzak = merch.MaxBalance - merch.Balance
 			}
+			//надо заказывать кратно step
+			if merch.Step > 1 {
+				cntzak = float64(int(merch.Step) * int(cntzak/merch.Step+0.9999))
+			}
 
 			if (int)(cntzak+0.5) > 0 {
 				models.SaveOper(ordersnum, provider, uidstore, merch.KeyGoods, now.Format("2006-01-02"), cntzak, next.Format("2006-01-02"), datedelivdays)
@@ -735,6 +766,7 @@ func mkorders(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "beg": status["beg"], "err": status["err"], "end": status["end"]})
 }
 
+//getZakaz выгруит заказы в xml
 func getZakaz(c *gin.Context) {
 
 	period := c.DefaultQuery("date", "last")
@@ -833,32 +865,39 @@ func recalcABC(uidStore string, period1 string, period2 string) error {
 func setsalesmatrix(c *gin.Context) {
 	//storeuid := c.Param("store")
 	type Smatrix struct {
-		uidstore string  `form:"uidstore" binding:"required"`
-		uidgoods string  `form:"uidgoods" binding:"required"`
-		minimum  float64 `form:"minimum" binding:"required"`
-		maximum  float64 `form:"maximum" binding:"required"`
-		inuse    int     `form:"inuse" binding:"required"`
-		step     float64 `form:"step" binding:"required"`
+		Uidstore string  `json:"uidstore" binding:"required"`
+		Uidgoods string  `json:"uidgoods" binding:"required"`
+		Minimum  float64 `json:"minimum" binding:"required"`
+		Maximum  float64 `json:"maximum" binding:"required"`
+		Inuse    bool    `json:"inuse" binding:"required"`
+		Step     float64 `json:"step" binding:"required"`
 	}
 	var sm []Smatrix
 	// in this case proper binding will be automatically selected
-	if err := c.ShouldBind(&sm); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "error": true, "message": "bad request"})
+	if err := c.ShouldBindJSON(&sm); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "error": true, "message": "bad request " + err.Error()})
 		return
 	}
-	m := make(map[string]interface{})
+
+	matr := make([]map[string]interface{}, 0, 256)
 	for _, v := range sm {
-		m["uidStore"] = v.uidstore
-		m["uidGoods"] = v.uidgoods
-		m["minbalance"] = v.minimum
-		m["maxbalance"] = v.maximum
-		m["inuse"] = v.inuse
-		m["step"] = v.step
-		err := models.ReplaceMatrix(m)
-		if err != nil {
-			c.JSON(http.StatusNotAcceptable, gin.H{"status": http.StatusNotAcceptable, "error": true, "message": err.Error()})
-			return
+		m := make(map[string]interface{})
+		m["uidStore"] = v.Uidstore
+		m["uidGoods"] = v.Uidgoods
+		m["minbalance"] = v.Minimum
+		m["maxbalance"] = v.Maximum
+		if v.Inuse {
+			m["inuse"] = 1
+		} else {
+			m["inuse"] = 0
 		}
+		m["step"] = v.Step
+		matr = append(matr, m)
+	}
+	err := models.ReplaceMatrix(matr)
+	if err != nil {
+		c.JSON(http.StatusNotAcceptable, gin.H{"status": http.StatusNotAcceptable, "error": true, "message": err.Error()})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "ok"})
@@ -876,12 +915,14 @@ func startPage(c *gin.Context) {
 	if err != nil {
 		hdata["Error"] = err.Error()
 	}
+
 	if len(conf) == 0 {
 		//переходим на страницу конфигурации
-		//c.Request.URL.Path = "/test2"
+		c.Request.URL.Path = "/config"
 		//api.HandleContext(c)
-		c.Redirect(http.StatusContinue, "/config")
+		//c.Redirect(http.StatusContinue, "config")
 	}
+
 	lastdblog := models.GetLastStateNetwork(5, "")
 	ki := make([]int, 0, len(lastdblog))
 	for k := range lastdblog {
@@ -1105,7 +1146,7 @@ func main() {
 		api.PUT("goods/:id", updateGoods)
 		api.GET("neuro/:store/:goods", getNeuroData)
 		api.GET("predict/:store/:goods", getPredict)
-		api.POST("sales/:store/:goods", setSales)
+		api.POST("setsales/", setSales)
 		api.GET("makeorders/", mkorders)
 		api.POST("recalcabc/:store", setABC)
 		api.GET("getOrders/", getZakaz)

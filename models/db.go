@@ -122,6 +122,8 @@ type MatrixGoods struct {
 	PredCnt float64
 	//PredDemand прогноз потребности ед/день
 	PredDemand float64
+	//Step кратность упаковки товара
+	Step float64
 }
 
 //SQLiteObject.Execute("CREATE TABLE IF NOT EXISTS stores (uid text PRIMARY KEY, name text NOT NULL, tip integer)");
@@ -669,6 +671,59 @@ func SaveSales(uidStore string, uidGoods string, period string, tipmov string, c
 	return nil
 }
 
+//InsRepSales изменяет таблицу продажи товаров
+func InsRepSales(matr []map[string]interface{}) error {
+	itrans := 500
+	s := ""
+	i := 0
+	for _, m := range matr {
+		flds := ""
+		val := ""
+		comma := ""
+		for k, v := range m {
+			flds = flds + comma + k
+			switch v.(type) {
+			case float64:
+				val = val + comma + strconv.FormatFloat((v.(float64)), 'f', -1, 64)
+			case int64:
+				val = val + comma + strconv.FormatInt((v.(int64)), 10)
+			case int:
+				val = val + comma + strconv.FormatInt(int64(v.(int)), 10)
+			case time.Time:
+				val = val + comma + (v.(time.Time)).Format("2006-01-02T15:04:05")
+			case bool:
+				if (v.(bool)) == true {
+					val = val + comma + " true"
+				} else {
+					val = val + comma + "false"
+				}
+			case string:
+				val = val + comma + escstr(v.(string))
+			}
+			comma = ","
+		}
+		s = s + "INSERT OR REPLACE INTO goodsmov (" + flds + ") VALUES(" + val + ");"
+		i++
+		if i > itrans {
+			i = 0
+			s = "BEGIN TRANSACTION;" + s + "COMMIT TRANSACTION;"
+			_, err := DB.Exec(s)
+			if err != nil {
+				return err
+			}
+			s = ""
+		}
+	}
+	if s != "" {
+		s = "BEGIN TRANSACTION;" + s + "COMMIT TRANSACTION;"
+		_, err := DB.Exec(s)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 //GetGoodsFromMatrix возвращает матрицу товаров
 func GetGoodsFromMatrix(kStore string) (st []string, err error) {
 	//rows, err := DB.Query("select m.uidGoods, ifnull(p.period,'1970-01-01') , ifnull(p.cnt,0), ifnull(p.days,0), ifnull(p.demand,0) from salesmatrix as m left join predict as p on m.uidStore=p.uidStore and m.uidgoods=p.uidgoods where m.uidStore=$1 and inuse=1;", kStore)
@@ -694,14 +749,14 @@ func GetAllGoodsFromMatrix(kStore string, kGoods string) (mg []MatrixGoods, err 
 	//rows, err := DB.Query("select uidGoods, minbalance, maxbalance, abc, vitrina from salesmatrix where uidStore=$1;", kStore) // uidGoods='ea716efd-52f8-11e5-ad24-3085a9a9595a' and
 	var rows *sql.Rows
 	if len(kGoods) == 0 {
-		rows, err = DB.Query(`select s.uidGoods, s.minbalance, s.maxbalance, ifnull(s.abc,'C') as abc, s.vitrina, ifnull(zz.balance,0) as balance, ifnull(p.period,'1970-01-01') as predictper , ifnull(p.cnt,0) as predcnt, ifnull(p.days,0) as preddays, ifnull(p.demand,0) as preddemand from salesmatrix s LEFT JOIN 
+		rows, err = DB.Query(`select s.uidGoods, s.minbalance, s.maxbalance, ifnull(s.abc,'C') as abc, s.vitrina, ifnull(zz.balance,0) as balance, ifnull(p.period,'1970-01-01') as predictper , ifnull(p.cnt,0) as predcnt, ifnull(p.days,0) as preddays, ifnull(p.demand,0) as preddemand, s.step from salesmatrix s LEFT JOIN 
 	(select z.uidgoods as uidgoods, z.balance as balance, z.period from goodsmov as z join (select max(g.id) as id from goodsmov as g where g.uidStore=$1 group by g.uidStore, g.uidgoods) as a on a.id=z.id) as zz
 	on s.uidGoods=zz.uidgoods left join 
 	(select p.uidStore, p.uidgoods, p.period, p.cnt, p.days, p.demand from predict as p join 
 	(select max(period) as mperiod, max(id) as id,uidStore, uidgoods from predict where uidStore=$1 group by uidStore, uidgoods) as p1
 	on p.id=p1.id where p.uidStore=$1) as p on s.uidStore=p.uidStore and s.uidgoods=p.uidgoods where s.uidStore=$1 and s.inuse=1;`, kStore)
 	} else {
-		rows, err = DB.Query(`select s.uidGoods, s.minbalance, s.maxbalance, ifnull(s.abc,'C') as abc, s.vitrina, ifnull(zz.balance,0) as balance, ifnull(p.period,'1970-01-01') as predictper , ifnull(p.cnt,0) as predcnt, ifnull(p.days,0) as preddays, ifnull(p.demand,0) as preddemand from salesmatrix s LEFT JOIN 
+		rows, err = DB.Query(`select s.uidGoods, s.minbalance, s.maxbalance, ifnull(s.abc,'C') as abc, s.vitrina, ifnull(zz.balance,0) as balance, ifnull(p.period,'1970-01-01') as predictper , ifnull(p.cnt,0) as predcnt, ifnull(p.days,0) as preddays, ifnull(p.demand,0) as preddemand, s.step from salesmatrix s LEFT JOIN 
 	(select z.uidgoods as uidgoods, z.balance as balance, z.period from goodsmov as z join (select max(g.id) as id from goodsmov as g where g.uidStore=$1 and g.uidgoods=$2 group by g.uidStore, g.uidgoods) as a on a.id=z.id) as zz
 	on s.uidGoods=zz.uidgoods left join 
 	(select p.uidStore, p.uidgoods, p.period, p.cnt, p.days, p.demand from predict as p join 
@@ -720,7 +775,7 @@ func GetAllGoodsFromMatrix(kStore string, kGoods string) (mg []MatrixGoods, err 
 	var ns sql.NullString
 	var nsp sql.NullString
 	for rows.Next() {
-		err := rows.Scan(&lmg.KeyGoods, &lmg.MinBalance, &lmg.MaxBalance, &ns, &lmg.Vitrina, &nf, &nsp, &lmg.PredCnt, &lmg.PredDays, &nfd)
+		err := rows.Scan(&lmg.KeyGoods, &lmg.MinBalance, &lmg.MaxBalance, &ns, &lmg.Vitrina, &nf, &nsp, &lmg.PredCnt, &lmg.PredDays, &nfd, &lmg.Step)
 		if err != nil {
 			return mg, err
 		}
@@ -795,36 +850,53 @@ func UpdateMatrix(m map[string]interface{}, w map[string]string) error {
 }
 
 //ReplaceMatrix изменяет таблицу матрицы товаров
-func ReplaceMatrix(m map[string]interface{}, w map[string]string) error {
+func ReplaceMatrix(matr []map[string]interface{}) error {
+	itrans := 500
+	s := ""
+	i := 0
+	for _, m := range matr {
+		flds := ""
+		val := ""
+		comma := ""
+		for k, v := range m {
+			flds = flds + comma + k
+			switch v.(type) {
+			case float64:
 
-	flds := ""
-	val := ""
-	comma := ""
-	for k, v := range m {
-		flds = flds + comma + k
-		switch v.(type) {
-		case float64:
-
-			val = val + comma + strconv.FormatFloat((v.(float64)), 'f', -1, 64)
-		case int64:
-			val = val + comma + strconv.FormatInt((v.(int64)), 10)
-		case int:
-			val = val + comma + strconv.FormatInt(int64(v.(int)), 10)
-		case bool:
-			if (v.(bool)) == true {
-				val = val + comma + " true"
-			} else {
-				val = val + comma + "false"
+				val = val + comma + strconv.FormatFloat((v.(float64)), 'f', -1, 64)
+			case int64:
+				val = val + comma + strconv.FormatInt((v.(int64)), 10)
+			case int:
+				val = val + comma + strconv.FormatInt(int64(v.(int)), 10)
+			case bool:
+				if (v.(bool)) == true {
+					val = val + comma + " true"
+				} else {
+					val = val + comma + "false"
+				}
+			case string:
+				val = val + comma + escstr(v.(string))
 			}
-		case string:
-			val = val + comma + escstr(v.(string))
+			comma = ","
 		}
-		comma = ","
+		s = s + "INSERT OR REPLACE INTO salesmatrix (" + flds + ") VALUES(" + val + ");"
+		i++
+		if i > itrans {
+			i = 0
+			s = "BEGIN TRANSACTION;" + s + "COMMIT TRANSACTION;"
+			_, err := DB.Exec(s)
+			if err != nil {
+				return err
+			}
+			s = ""
+		}
 	}
-	s := "INSERT OR REPLACE INTO salesmatrix (" + flds + ") VALUES(" + val + ");"
-	_, err := DB.Exec(s)
-	if err != nil {
-		return err
+	if s != "" {
+		s = "BEGIN TRANSACTION;" + s + "COMMIT TRANSACTION;"
+		_, err := DB.Exec(s)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
