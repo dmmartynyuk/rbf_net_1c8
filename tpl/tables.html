@@ -1,0 +1,150 @@
+{{template "base" .}}
+{{define "title"}}Справочники{{end}}
+{{define "pagestyle"}}
+<style type="text/css">
+</style>
+{{end}}
+{{define "content"}}
+<div class="container-fluid">
+	<div class="row">
+        <nav class="col-md-2 d-none d-md-block bg-light sidebar">
+          <div class="sidebar-sticky">
+            <ul class="nav flex-column">
+              <li class="nav-item">
+                <a id="stores" class="nav-link d-flex {{setActive .Tabname "stores"}}"  href="/tables?tab=stores" data-sel="none"><i class="zmdi zmdi-account"></i><span class="col-md-12">Склады</span><i class="tabnav"></i></a>
+              </li>
+              <li class="nav-item ">
+                <a id="goods" class="nav-link d-flex {{setActive .Tabname "goods"}}"  href="/tables?tab=goods" data-sel="none"><i class="zmdi zmdi-account"></i><span class="col-md-12">Номенклатура</span><i class="tabnav"></i></a>
+              </li>
+              <li class="nav-item">
+                <a id="contract" class="nav-link d-flex {{setActive .Tabname "contracts"}}"  href="/tables?tab=contracts" data-sel="none"><i class="zmdi zmdi-account"></i><span class="col-md-12">Контракты</span><i class="tabnav"></i></a>
+              </li>
+              <li class="nav-item">
+                <a id="matrix" class="nav-link d-flex {{setActive .Tabname "salesmatrix"}}"  href="/tables?tab=salesmatrix" data-sel="none"><i class="zmdi zmdi-account"></i><span class="col-md-12">Матрица товаров</span><i class="tabnav"></i></a>
+              </li>
+            </ul>          
+          </div>
+        </nav>
+
+        <main role="main" class="col-md-9 ml-sm-auto col-lg-10 pt-3 px-4">
+		{{if .Error}}
+		<div class="alert alert-danger" role="alert">
+		{{.Error}}
+		</div>
+		{{end}}
+		<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pb-2 mb-3 border-bottom">
+		
+            <h1 class="h2">Справочники</h1>
+            <div class="btn-toolbar mb-2 mb-md-0">
+              <div class="btn-group mr-2">
+
+                <button class="btn btn-sm btn-outline-secondary" onclick="return exportToCSV('prof');">Выгрузить таблицу</button>
+              </div>
+              <button class="btn btn-sm btn-outline-secondary dropdown-toggle">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-calendar"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                This week
+              </button>
+            </div>
+        </div>
+        <div id="tab_divcons"></div>
+          <h3>{{.Rutabname}} </h3>
+          <div id="tab_div"></div>
+		  <nav aria-label="Page navigation example">
+  <ul class="pagination">
+    <li class="page-item">
+      <a class="page-link" href="/tables?tab={{.Tabname}}&pg={{.Prevpages}}&gate={{.Gate}}" aria-label="Previous">
+        <span aria-hidden="true">&laquo;</span>
+        <span class="sr-only">Предидущий</span>
+      </a>
+    </li>
+	{{range $index, $value := .Pagination}}
+    <li class="page-item{{if eq $index $.Pg}} active{{end}}">
+        <a id="page{{$index}}" class="page-link"  href="/tables?tab={{$.Tabname}}&pg={{$value}}&gate={{$.Gate}}">{{$value}}</a>
+    </li>
+    {{end}}
+	{{if gt .Nextpages 0}}
+    <li class="page-item">
+      <a class="page-link" href="/tables?tab={{.Tabname}}&pg={{.Nextpages}}&gate={{.Gate}}" aria-label="Next">
+        <span aria-hidden="true">&raquo;</span>
+        <span class="sr-only">Следующий</span>
+      </a>
+    </li>
+	{{end}}
+  </ul>
+</nav>
+        </main>
+     </div>  
+</div>
+{{end}}
+{{define "jscript"}}
+<script type="text/javascript">
+var gtab ={
+    datachart: [ {{.Datatab}} ],
+    options : {
+         title: 'Данные справочника'
+	}
+}
+google.charts.load('current', {'packages':['corechart','table']});
+google.charts.setOnLoadCallback(drawTable);
+function drawTable() {
+        //var data = new google.visualization.DataTable();
+        var data = google.visualization.arrayToDataTable(gtab.datachart);
+	      //data.addColumn('string', 'период');
+        var table = new google.visualization.Table(document.getElementById('tab_div'));
+        table.draw(data, {allowHtml: true, showRowNumber: true, width: '100%', height: '100%'});
+		//google.visualization.events.addListener(table, 'select', selectHandler);
+		google.visualization.events.addListener(table, 'select', function() {
+			var row = table.getSelection()[0].row;
+			//alert('You selected ' + data.getValue(row, 0));
+		});
+} 
+
+
+function selectHandler() {
+  //alert('A table row was selected'+this.RowIndex);
+  var selection = this.getSelection();
+  var message = '';
+
+  for (var i = 0; i < selection.length; i++) {
+    var item = selection[i];
+    if (item.row != null && item.column != null) {
+      message += '{row:' + item.row + ',column:' + item.column + '}';
+    } else if (item.row != null) {
+      message += '{row:' + item.row + '}';
+    } else if (item.column != null) {
+      message += '{column:' + item.column + '}';
+    }
+  }
+  if (message == '') {
+    message = 'nothing';
+  }
+  alert('You selected ' + message);
+}
+function exportToCSV(typ) {
+    var obj;
+    var fn="table.csv";
+	obj=qtab.datachart;
+    if (!obj.length) {
+		return;
+	}
+    var csvContent = "data:text/csv;charset=utf-8,";
+    // headers
+	for (i=0;i<obj.length;i++){
+		comma="";
+        for(r=0;r<obj[i].length;r++){
+			csvContent =csvContent+comma+obj[i][r];
+            comma=";";
+        } 
+        csvContent +="\n";
+	} 
+    csvContent +="\n";
+    var encodedUri = encodeURI(csvContent);
+    var link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", fn);
+    document.body.appendChild(link); // Required for FF
+	link.click();
+    document.body.removeChild(link); 
+}
+</script>
+{{end}}

@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html>
+<head>
+<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.1.3/css/bootstrap.min.css" crossorigin="anonymous">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/material-design-iconic-font/2.2.0/css/material-design-iconic-font.min.css">
+<link href="/assets/css/dashboard.css" rel="stylesheet">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+<meta name="description" content="Статистика по магазинам">
+<meta name="author" content="RS-PRO">
+
+</head>
+
+<body>
+    <nav class="navbar navbar-dark fixed-top bg-dark flex-md-nowrap p-0 shadow">
+      <a class="navbar-brand col-sm-3 col-md-2 mr-0" href="#">Российская сантехника</a>
+<!--      <input class="form-control form-control-dark w-100" type="text" placeholder="Поиск" aria-label="Поиск">  -->
+      <ul class="navbar-nav px-3">
+        <li class="nav-item text-nowrap">
+          <a class="nav-link" href="#">{{.User}}</a>
+        </li>
+      </ul>
+    </nav>
+
+    <div class="container-fluid">
+      <div class="row">
+        <nav class="col-md-2 d-none d-md-block bg-light sidebar">
+          <div class="sidebar-sticky">
+            <ul class="nav flex-column">
+              <li class="nav-item">
+                <a class="nav-link active" href="/fin">
+                  <span data-feather="home"></span>
+                  Финансы <span class="sr-only">(current)</span>
+                </a>
+              </li>
+              <li class="nav-item">
+                <a id="gdv" class="nav-link d-flex firm"  href="#" data-sel="none"><i class="zmdi zmdi-account"></i><span class="col-md-12">Гончаров ДВ</span><i class="rsorg"></i></a>
+              </li>
+              <li class="nav-item">
+                <a id="edi" class="nav-link d-flex firm"  href="#" data-sel="none"><i class="zmdi zmdi-account"></i><span class="col-md-12">Ильинский ЭА</span><i class="rsorg"></i></a>
+              </li>
+              <li class="nav-item">
+                <a id="koa" class="nav-link d-flex firm"  href="#" data-sel="none"><i class="zmdi zmdi-account"></i><span class="col-md-12">Крахмальный ОА</span><i class="rsorg"></i></a>
+              </li>
+              <li class="nav-item">
+                <a id="akv" class="nav-link d-flex firm"  href="#" data-sel="none"><i class="zmdi zmdi-account"></i><span class="col-md-12">Ауведук</span><i class="rsorg"></i></a>
+              </li>
+              <li class="nav-item">
+                <a id="etud" class="nav-link d-flex firm"  href="#" data-sel="none"><i class="zmdi zmdi-account"></i><span class="col-md-12">Этюд</span><i class="rsorg"></i></a>
+              </li>
+            </ul> 
+            <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-muted">
+              <span>Статистика по магазинам</span>
+            </h6>
+            <ul class="nav flex-column mb-2">
+              <li class="nav-item">
+                <a id="allmags" class="nav-link d-flex mags"  href="#" data-sel="selected"><i class="zmdi zmdi-balance"></i><span class="col-md-11">Все магазины</span><i class="mc zmdi zmdi-check"></i></a>
+              </li>
+            {{range $index, $value := .Mags}}
+              <li class="nav-item">
+                <a id="{{ .Key }}" class="nav-link d-flex mags"  href="#" data-sel="none"><i class="zmdi zmdi-balance"></i><span class="col-md-11">{{ .Descr }}</span><i class="mc"></i></a>
+              </li>
+            {{end}}
+            </ul>           
+          </div>
+        </nav>
+
+        <main role="main" class="col-md-10 ml-sm-auto col-lg-10 px-4">
+          <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+            <h1 class="h2">Финансовые результаты</h1>
+            <div class="btn-toolbar mb-2 mb-md-0">
+              <div class="btn-group mr-2">
+                <button class="btn btn-sm btn-outline-secondary" onclick="return exportToCSV('prof');">Выгрузить Доходы</button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="return exportToCSV('cost');">Выгрузить Расходы</button>
+              </div>
+              <div class="btn-group" role="group">
+                <button id="getperiod" type="button" class="btn btn-sm btn-secondary dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                  <span data-feather="calendar"></span>
+                  Все года
+                </button>
+                <div class="dropdown-menu" aria-labelledby="getperiod">
+                  <a class="dropdown-item" rel="nofollow" onclick="getDataMag(1);" href="#">Этот месяц</a>
+                  <a class="dropdown-item" rel="nofollow" onclick="getDataMag(6);" href="#">Последние 6 месяцев</a>
+                  <a class="dropdown-item" rel="nofollow" onclick="getDataMag(12);" href="#">Этот год</a>
+                  <a class="dropdown-item" rel="nofollow" onclick="getDataMag(24);" href="#">Два последних</a>
+                  <a class="dropdown-item" rel="nofollow" onclick="getDataMag(0);" href="#">Все года</a>
+                </div>
+              </div> 
+            </div>
+          </div>
+          <div id="tab_divcons"></div>
+          
+          <h3>Расходы </h3>
+          <div id="curve_chart" style="height: 500px"></div>
+
+          <div class="card">
+            <div class="card-header" id="headertabcast">
+              <h3 class="mb-0">
+              <button class="btn btn-link" data-toggle="collapse" data-target="#collapseCost" aria-expanded="true" aria-controls="collapseCost">Расшифровка расходов <i class="zmdi zmdi-grid"></i></button>
+              </h3>
+            </div>		  
+            <div class="collapse show" id="collapseCost">	  
+              <div class="card card-body">
+                <div id="tab_div"></div>
+              </div>
+            </div>
+          </div>
+          
+          <h3>Доходы (Розница+опт)</h3>
+          <div id="prof_chart"></div>
+          <div class="card">
+            <div class="card-header" id="headertabcast">
+              <h3 class="mb-0">
+              <button class="btn btn-link" data-toggle="collapse" data-target="#collapseProf" aria-expanded="true" aria-controls="collapseProf">Расшифровка доходов <i class="zmdi zmdi-grid"></i></button>
+              </h3>
+            </div>		  
+            <div class="collapse" id="collapseProf">	  
+              <div class="card card-body">
+                <div id="tab_divprof"></div>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <!-- Bootstrap core JavaScript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+    <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script>
+    <script>window.jQuery || document.write('<script src="/assets/js/jquery-slim.min.js"><\/script>')</script>
+    <script src="/assets/js/popper.min.js"></script>
+    <script src="/assets/js/bootstrap.min.js"></script>
+<!-- Icons 
+    <script src="https://unpkg.com/feather-icons/dist/feather.min.js"></script>
+    <script>
+      feather.replace()
+    </script>
+-->
+    <!-- Graphs -->
+    <script type="text/javascript">
+    var rschart ={
+      datachart: [ {{.Datacast}} ],
+      dataprofit: [ {{.Dataprofit}} ],
+      options : {
+          title: 'Итог в руб.',
+          curveType: 'function',
+          legend: { position: 'right' }
+      },
+	    optionsprof : {
+          title: 'Доходы в руб.',
+          curveType: 'function',
+          legend: { position: 'right' },
+          bar: { groupWidth: '75%' },
+          isStacked: true
+      },
+	    optionscast : {
+          title: 'Расходы в руб.',
+          curveType: 'function',
+          legend: { position: 'right' },
+		      bar: { groupWidth: '75%' },
+          isStacked: true
+      },
+      gdatap:null,
+      gdatac:null,
+      chartcost:null,
+      chartprof:null
+	  }
+    
+    google.charts.load('current', {'packages':['corechart','table']});
+    google.charts.setOnLoadCallback(drawCostChart);
+    google.charts.setOnLoadCallback(drawProfit);
+	  google.charts.setOnLoadCallback(drawConsChart);
+	
+    function drawCostChart() {
+        rschart.gdatac = google.visualization.arrayToDataTable(rschart.datachart);
+        //rschart.chartcost = new google.visualization.ColumnChart(document.getElementById('curve_chart'));
+        rschart.chartcost = new google.visualization.ColumnChart(document.getElementById('curve_chart'));
+        rschart.chartcost.draw(rschart.gdatac, rschart.optionscast);
+        drawTableCast();
+        addFiltTab();
+    }
+    function drawTableCast() {
+        //var data = new google.visualization.DataTable();
+        var data = google.visualization.arrayToDataTable(rschart.datachart);
+	      //data.addColumn('string', 'период');
+        var table = new google.visualization.Table(document.getElementById('tab_div'));
+        table.draw(data, {allowHtml: true, showRowNumber: true, width: '100%', height: '100%'});
+    }  
+    function drawProfit() {
+      rschart.gdatap = google.visualization.arrayToDataTable(rschart.dataprofit);
+      rschart.chartprof = new google.visualization.ColumnChart(document.getElementById('prof_chart')); //ColumnChart
+      rschart.chartprof.draw(rschart.gdatap, rschart.optionsprof);
+      drawTableProfit();
+    }
+    function drawTableProfit() {
+      var data = google.visualization.arrayToDataTable(rschart.dataprofit);
+      var table = new google.visualization.Table(document.getElementById('tab_divprof'));
+      table.draw(data, {allowHtml: true, showRowNumber: true, width: '100%', height: '100%'});
+    }  
+    /*function triggerCol(colnum)
+    {
+      view = new google.visualization.DataView(rschart.data);
+      view.hideColumns(colnum); 
+      chart.draw(view, rschart.options);
+    }*/
+	  function drawConsChart() {
+      var s=0
+      var consdata =[['Период','Доходы','Расходы']];
+      for (i=1;i<rschart.dataprofit.length && i<rschart.datachart.length;i++){
+        var row=[];
+        s=0;
+        row.push(rschart.dataprofit[i][0]);
+        for(r=1;r<rschart.dataprofit[i].length;r++){
+          s=s+rschart.dataprofit[i][r];
+        } 
+			  row.push(s);//доходы
+			  s=0;
+			  if(rschart.dataprofit[i][0]==rschart.datachart[i][0]){
+				  for(r=1;r<rschart.datachart[i].length;r++){
+					  s=s+rschart.datachart[i][r];
+				  } 
+			  }
+			  row.push(s);//расходы
+			  consdata.push(row)
+		  }
+        var data = google.visualization.arrayToDataTable(consdata);
+        var table = new google.visualization.ColumnChart(document.getElementById('tab_divcons'));//LineChart
+        table.draw(data, rschart.options);
+    } 
+    function exportToCSV(typ) {
+      var obj;
+      var fn="fin_prof.csv";
+      if(typ=="prof"){
+        obj=rschart.dataprofit;
+      }else{
+        obj=rschart.datachart;
+        var fn="fin_cost.csv";
+      }
+        if (!obj.length) {
+            return;
+        }
+        var csvContent = "data:text/csv;charset=utf-8,";
+        // headers
+      for (i=0;i<obj.length;i++){
+          comma="";
+          for(r=0;r<obj[i].length;r++){
+            csvContent =csvContent+comma+obj[i][r];
+            comma=";";
+          } 
+          csvContent +="\n";
+      } 
+        csvContent +="\n";
+        var encodedUri = encodeURI(csvContent);
+        var link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", fn);
+        document.body.appendChild(link); // Required for FF
+        link.click();
+        document.body.removeChild(link); 
+    }
+    function getAllUrlParams(url) {
+        // get query string from url (optional) or window
+        var queryString = url ? url.split('?')[1] : window.location.search.slice(1);
+        // we'll store the parameters here
+        var obj = {};
+        // if query string exists
+        if (queryString) {
+          // stuff after # is not part of query string, so get rid of it
+          queryString = queryString.split('#')[0];
+          // split our query string into its component parts
+          var arr = queryString.split('&');
+          for (var i = 0; i < arr.length; i++) {
+            // separate the keys and the values
+            var a = arr[i].split('=');
+            // set parameter name and value (use 'true' if empty)
+            var paramName = a[0];
+            var paramValue = typeof (a[1]) === 'undefined' ? true : a[1];
+            // (optional) keep case consistent
+            paramName = paramName.toLowerCase();
+            if (typeof paramValue === 'string') paramValue = paramValue.toLowerCase();
+            // if the paramName ends with square brackets, e.g. colors[] or colors[2]
+            if (paramName.match(/\[(\d+)?\]$/)) {
+              // create key if it doesn't exist
+              var key = paramName.replace(/\[(\d+)?\]/, '');
+              if (!obj[key]) obj[key] = [];
+              // if it's an indexed array e.g. colors[2]
+              if (paramName.match(/\[\d+\]$/)) {
+                // get the index value and add the entry at the appropriate position
+                var index = /\[(\d+)\]/.exec(paramName)[1];
+                obj[key][index] = paramValue;
+              } else {
+                // otherwise add the value to the end of the array
+                obj[key].push(paramValue);
+              }
+            } else {
+              // we're dealing with a string
+              if (!obj[paramName]) {
+                // if it doesn't exist, create property
+                obj[paramName] = paramValue;
+              } else if (obj[paramName] && typeof obj[paramName] === 'string'){
+                // if property does exist and it's a string, convert it to an array
+                obj[paramName] = [obj[paramName]];
+                obj[paramName].push(paramValue);
+              } else {
+                // otherwise add the property
+                obj[paramName].push(paramValue);
+              }
+            }
+          }
+        }
+
+        return obj;
+      }
+
+      function getDataFin(per){
+        var firm = "";
+        if(per=="undefined"){
+          per=0;
+        }
+        $(".firm").each(function (index, value) {
+          var id=$(this).attr('id');
+          var sel=$(this).data("sel");
+          if(sel=="selected"){
+            firm=firm+id+",";
+          }
+        });
+        if(firm.length>3){
+          firm="&firm="+firm.substring(0,firm.length-1);
+        }else{
+          firm=""
+        }
+        window.location.href="/fin?period="+per+firm;
+      }
+      function getDataMag(per){
+        var mag = "";
+        if(per=="undefined"){
+          per=0;
+        }
+        $(".mags").each(function (index, value) {
+          var id=$(this).attr('id');
+          var sel=$(this).data("sel");
+          if(sel=="selected"){
+            mag=mag+id+",";
+          }
+        });
+        if(mag.length>1 && mag !="allmags,"){
+          mag="&mag="+mag.substring(0,mag.length-1);
+        }else{
+          mag=""
+        }
+        window.location.href="/mag?period="+per+mag;
+      }
+      function addFiltTab(){
+        var tab=$("#tab_div").find("table");
+        if(tab.length==0){return}
+        var cells=tab[0].rows[0].cells;
+        for(i=2; i<cells.length; i++){
+          $(cells[i]).append($('<input type="checkbox" id="v'+(i-1)+'" checked="checked" class="rscostcol"/>'));
+        }
+        $(".rscostcol").on("change",function(el){
+        var chk=$(this).prop("checked");
+        if(!chk){
+          rschart.gdatac.removeColumn(parseInt((this.id).substring(1),10));
+          rschart.chartcost.draw(rschart.gdatac, rschart.optionscast);
+        }else{
+          var col=parseInt((this.id).substring(1),10);
+          rschart.gdatac.insertColumn(col,'number');
+          //var cell=$("#tab_div").find("table")[0].rows[0].cells[1+col];
+          rschart.gdatac.setColumnLabel(col, rschart.datachart[0][col]);
+          for(var r=1; r<rschart.datachart.length; r++){
+            rschart.gdatac.setValue(r-1, col, rschart.datachart[r][col]);
+          }
+          rschart.chartcost.draw(rschart.gdatac, rschart.optionscast);
+        }
+        });
+      }
+
+      
+      $(document).ready(function() {
+        if( getAllUrlParams().hasOwnProperty("period") ){
+          var per = getAllUrlParams().period;
+        }else{
+          var per = 0;
+        }
+        var textper = (per=="0" ? "Все года" : (per==3 ? "Три месяца" : (per=="12" ? "Этот год" : (per=="24" ? "Два последних" : ("Этот месяц")))));
+        $("#getperiod").text(textper);
+        if( getAllUrlParams().hasOwnProperty("mag") ){
+          var mag = getAllUrlParams().mag;
+          triggerMags(mag);
+        }
+        $(".firm").on("click",function(el){
+          if( getAllUrlParams().hasOwnProperty("period") ){
+            var per = getAllUrlParams().period;
+          }else{
+            var per = 0;
+          }
+          sel=$(this).data("sel");
+          if(sel=="selected"){
+            $(this).data("sel","none");
+          }else{
+            $(this).data("sel","selected");
+          }
+          getDataFin(per);
+        });
+        $(".mags").on("click",function(el){
+          if( getAllUrlParams().hasOwnProperty("period") ){
+            var per = getAllUrlParams().period;
+          }else{
+            var per = 0;
+          }
+          var sel=$(this).data("sel");
+          $(".mags").each(function (index, value) {
+            var id=$(this).attr('id');
+            $("#"+id+" i.zmdi.zmdi-check").prop('className', 'mc');
+            $("#"+id).data("sel","none");            
+          });
+          $(this).data("sel","selected");
+          getDataMag(per);
+        });
+        function triggerFirm(firm)
+        {
+          $(".firm").each(function (index, value) {
+            var id=$(this).attr('id');
+            regexp = new RegExp(id, "i");
+            if (firm.search(regexp)>=0){
+              $("#"+id+" i.rsorg").prop('className', 'zmdi zmdi-check');
+              $("#"+id).data("sel","selected");
+            }else{
+              $("#"+id+" i.zmdi.zmdi-check").prop('className', 'rsorg');
+              $("#"+id).data("sel","none");
+            }            
+          });
+        }
+        function triggerMags(mag)
+        {
+          $(".mags").each(function (index, value) {
+            var id=$(this).attr('id');
+            regexp = new RegExp(id, "i");
+            if (mag.search(regexp)>=0){
+              $("#"+id+" i.mc").prop('className', 'zmdi zmdi-check');
+              $("#"+id).data("sel","selected");
+            }else{
+              $("#"+id+" i.zmdi.zmdi-check").prop('className', 'mc');
+              $("#"+id).data("sel","none");
+            }            
+          });
+        }
+      });
+        
+
+    </script>    
+  </body>
+</html>

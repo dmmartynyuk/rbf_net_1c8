@@ -1,0 +1,86 @@
+{{define "base"}}
+<!doctype html>
+<html>
+<head>
+<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.1.3/css/bootstrap.min.css" crossorigin="anonymous">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/material-design-iconic-font/2.2.0/css/material-design-iconic-font.min.css">
+<link href="/assets/css/dashboard.css" rel="stylesheet">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+<meta name="description" content="{{.PageDescription}}">
+<meta name="author" content="DM">
+  <meta charset="utf-8">
+  <title>{{template "title" .}}</title>
+  {{template "pagestyle" .}}
+	<style>
+	/* Move down content because we have a fixed navbar that is 3.5rem tall */
+	body {
+	  padding-top: 3.5rem;
+	}
+	.bd-placeholder-img {
+        font-size: 1.125rem;
+        text-anchor: middle;
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
+    }
+
+    @media (min-width: 768px) {
+        .bd-placeholder-img-lg {
+          font-size: 3.5rem;
+        }
+    }
+	</style>
+</head>
+<body>
+	<nav class="navbar navbar-expand-md navbar-dark fixed-top bg-dark">
+  <a class="navbar-brand" href="/">{{.Logo}}</a>
+  <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarsBase" aria-controls="navbarsBase" aria-expanded="false" aria-label="Выбор действия">
+    <span class="navbar-toggler-icon"></span>
+  </button>
+
+  <div class="collapse navbar-collapse" id="navbarsBase">
+    <ul class="navbar-nav mr-auto">
+      <li class="nav-item{{setActive .Page "home" }}">
+        <a class="nav-link" href="/">Главная{{if eq .Page "home"}}<span class="sr-only">(current)</span>{{end}}</a>
+      </li>
+	  <li class="nav-item{{setActive .Page "config" }}">
+        <a class="nav-link" href="/config">Конфигурация{{if eq .Page "config"}}<span class="sr-only">(current)</span>{{end}}</a>
+      </li>
+      <li class="nav-item{{setActive .Page "tables" }}">
+        <a class="nav-link" href="/tables">Справочники{{if eq .Page "tables"}}<span class="sr-only">(current)</span>{{end}}</a>
+      </li>
+      <li class="nav-item dropdown{{setActive .Page "dropdown" }}">
+        <a class="nav-link dropdown-toggle" href="#" id="dropdown01" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">Движения</a>
+        <div class="dropdown-menu" aria-labelledby="dropdown01">
+          <a class="dropdown-item" href="#">По магазинам</a>
+          <a class="dropdown-item" href="#">Another action</a>
+          <a class="dropdown-item" href="#">Something else here</a>
+        </div>
+      </li>
+	  <li class="nav-item{{setActive .Page "cabinet" }}">
+        <a class="nav-link disabled" href="/cabinet" tabindex="-1" aria-disabled="true">{{.User}}{{if eq .Page "tables"}}<span class="sr-only">(current)</span>{{end}}</a>
+      </li>
+    </ul>
+    <form class="form-inline my-2 my-lg-0">
+      <input class="form-control mr-sm-2" type="text" placeholder="Search" aria-label="Search">
+      <button class="btn btn-outline-success my-2 my-sm-0" type="submit">Найти</button>
+    </form>
+  </div>
+</nav>
+{{template "content" .}}
+<hr />
+<footer class="container">
+  <p>&copy; Company 2019-2020</p>
+</footer>
+<!-- Placed at the end of the document so the pages load faster -->
+    <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script>
+    <script>window.jQuery || document.write('<script src="/assets/js/jquery-slim.min.js"><\/script>')</script>
+    <script src="/assets/js/popper.min.js"></script>
+    <script src="/assets/js/bootstrap.min.js"></script>
+{{template "jscript" .}}
+</body>
+</html>
+{{end}}

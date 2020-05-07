@@ -1,0 +1,61 @@
+{{template "base" .}}
+{{define "title"}}Конфигурация{{end}}
+{{define "pagestyle"}}
+<style type="text/css">
+
+
+</style>
+{{end}}
+{{define "content"}}
+<div class="container">
+<h1>Конфигурация</h1>
+{{if .Error}}
+	<div class="alert alert-danger" role="alert">
+	  {{.Error}}
+	</div>
+{{end}}
+  <form action="/config" method="get">
+  <div class="form-group">
+    <label for="firmName">Организация</label>
+    <input type="text" class="form-control" id="firmName" name="firmName" placeholder="Организация" value="{{.firmName}}">
+  </div>
+  <div class="form-row">
+    <div class="form-group col-md-6">
+      <label for="maxsales">Колич. дней анализа прошлых продаж</label>
+      <input type="number" class="form-control" id="maxsales" name="maxsales" value="{{.maxsales}}">
+    </div>
+    <div class="form-group col-md-6">
+      <label for="inf">Удаление последней точки расчета от текущей даты</label>
+      <input type="number" class="form-control" id="inf" name="inf" value="{{.inf}}">
+    </div>
+  </div>
+  <div class="form-row">
+    <div class="form-group col-md-4">
+      <label for="minDaysOrd">Колич. дней на которое обеспечивать склад при заказе</label>
+      <input type="number" class="form-control" id="minDaysOrd" name="minDaysOrd" placeholder="Минимальное количество дней запаса" value="{{.minDaysOrd}}">
+    </div>
+    <div class="form-group col-md-4">
+      <label for="inputMinDay">Прогнозируемый период, дней</label>
+		<input type="number" class="form-control" id="inputMinDay" name="minday2sale" placeholder="Прогнозируемый период, дней" value="{{.minday2sale}}">
+    </div>
+    <div class="form-group col-md-4">
+      <label for="kfnunvisible">Начальная сигма сети</label>
+      <input type="number" class="form-control" id="kfnunvisible" name="kfnunvisible" value="{{.kfnunvisible}}">
+    </div>
+  </div>
+  <div class="form-group">
+    <div class="form-check">
+      <input class="form-check-input" type="checkbox" id="gridCheck">
+      <label class="form-check-label" for="gridCheck">
+        Check me out
+      </label>
+    </div>
+  </div>
+  <button type="submit" class="btn btn-primary">Сохранить</button>
+</form>
+</div>
+{{end}}
+{{define "jscript"}}
+<script type="text/javascript">
+</script>
+{{end}}
