@@ -476,9 +476,36 @@ func fetchAllStocks(c *gin.Context) {
 }
 
 func updateGoods(c *gin.Context) {
-	id := c.Param("id")
-
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Goods updated successfully!", "uid": id})
+	type Goods struct {
+		Uidgoods   string `json:"uidgoods" binding:"required"`
+		GroupGoods string `json:"group" binding:"required"`
+		Name       string `json:"name" binding:"required"`
+		Art        string `json:"art" binding:"required"`
+	}
+	var sm []Goods
+	// in this case proper binding will be automatically selected
+	if err := c.ShouldBindJSON(&sm); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "error": true, "message": "bad request " + err.Error()})
+		return
+	}
+	/*
+		CREATE TABLE goods (uid text PRIMARY KEY, groupname text, name text NOT NULL, art text)
+	*/
+	matr := make([]map[string]interface{}, 0, 256)
+	for _, v := range sm {
+		m := make(map[string]interface{})
+		m["uid"] = v.Uidgoods
+		m["groupname"] = v.GroupGoods
+		m["name"] = v.Name
+		m["art"] = v.Art
+		matr = append(matr, m)
+	}
+	err := models.InsertTableData("goods", matr)
+	if err != nil {
+		c.JSON(http.StatusNotAcceptable, gin.H{"status": http.StatusNotAcceptable, "error": true, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "ok"})
 }
 
 func fetchSingleGoods(c *gin.Context) {
@@ -535,8 +562,8 @@ func setSales(c *gin.Context) {
 		Summa      float64 `json:"summa" binding:"required"`
 		Margin     float64 `json:"margin" binding:"required"`
 		Balance    float64 `json:"balance" binding:"required"`
-		Prevdays   string  `json:"prevd" binding:"required"`
-		Zerodays   string  `json:"zerod" binding:"required"`
+		Prevdays   int     `json:"prevd" binding:"required"`
+		Zerodays   int     `json:"zerod" binding:"required"`
 	}
 	var sm []Sales
 	// in this case proper binding will be automatically selected
@@ -569,13 +596,32 @@ func setSales(c *gin.Context) {
 		}
 		m["uidStore"] = v.Uidstore
 		m["uidGoods"] = v.Uidgoods
-		m["period"] = v.Period
+		if v.Period == "" {
+			m["period"] = time.Now().Format("2006-01-02T15:04:05")
+		} else {
+			lper, err := time.Parse("2006-01-02T15:04:05", v.Period)
+			if err != nil {
+				//формат даты другой
+				lper, err = time.Parse("2006-01-02", v.Period)
+				if err != nil {
+					c.JSON(http.StatusNotAcceptable, gin.H{"status": http.StatusNotAcceptable, "error": true, "message": "формат даты должен быть 2006-01-02T15:02:05" + err.Error()})
+					return
+				}
+			}
+			m["period"] = lper.Format("2006-01-02T15:04:05")
+		}
+		if v.Tipmov == "" {
+			v.Tipmov = "S"
+		}
 		m["tipmov"] = v.Tipmov
 		m["groupGoods"] = v.GroupGoods
-		m["cnt"] = 0
+		m["cnt"] = v.Cnt
 		m["summa"] = v.Summa
 		m["margin"] = v.Margin
 		m["balance"] = v.Balance
+		if v.Prevdays == 0 {
+			v.Prevdays = 1
+		}
 		m["prevdays"] = v.Prevdays
 		m["zerodays"] = v.Zerodays
 		matr = append(matr, m)
@@ -903,6 +949,45 @@ func setsalesmatrix(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "ok"})
 }
 
+func setstores(c *gin.Context) {
+	storeuid := c.DefaultQuery("store", "")
+	type Stores struct {
+		Uidstore string `json:"uidstore" binding:"required"`
+		Name     string `json:"name" binding:"required"`
+		Tip      int    `json:"tip" binding:"required"`
+		Calendar string `json:"calendar" binding:"-"`
+	}
+	var sm []Stores
+	// in this case proper binding will be automatically selected
+	if err := c.ShouldBindJSON(&sm); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "error": true, "message": "bad request " + err.Error()})
+		return
+	}
+	if len(storeuid) > 0 {
+		//update
+	} else {
+		//insert/replace
+
+	}
+
+	matr := make([]map[string]interface{}, 0, 256)
+	for _, v := range sm {
+		m := make(map[string]interface{})
+		m["uid"] = v.Uidstore
+		m["name"] = v.Name
+		m["tip"] = v.Tip
+		m["calendar"] = v.Calendar
+		matr = append(matr, m)
+	}
+	err := models.InsertTableData("stores", matr)
+	if err != nil {
+		c.JSON(http.StatusNotAcceptable, gin.H{"status": http.StatusNotAcceptable, "error": true, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "ok"})
+}
+
 //стартовая страница
 func startPage(c *gin.Context) {
 	// Вызовем метод HTML из Контекста Gin для обработки шаблона
@@ -1093,10 +1178,29 @@ func tablesPage(c *gin.Context) {
 	)
 }
 
+//стартовая страница
+func helpPage(c *gin.Context) {
+	// Вызовем метод HTML из Контекста Gin для обработки шаблона
+	// gin.H is a shortcut for map[string]interface{}
+	hdata := make(map[string]interface{})
+	hdata["Page"] = "help"
+	hdata["User"] = "DM"
+	hdata["Title"] = "Помощь"
+	c.HTML(
+		// Зададим HTTP статус 200 (OK)
+		http.StatusOK,
+		// Используем шаблон index.html
+		"help",
+		// Передадим данные в шаблон
+		hdata,
+	)
+
+}
+
 func main() {
 	port := flag.Int("port", 3000, "Номер порта")
 	portstr := ":" + strconv.Itoa(*port)
-	dbpath := flag.String("db", "C:\\usr\\rszak.db", "путь к базе")
+	dbpath := flag.String("db", "D:\\rszak.db", "путь к базе")
 	flag.Parse()
 	err := models.InitDB(*dbpath)
 	if err != nil {
@@ -1138,6 +1242,7 @@ func main() {
 	router.GET("/", startPage)
 	router.GET("/config", confPage)
 	router.GET("/tables", tablesPage)
+	router.GET("/help", helpPage)
 	api := router.Group("/api/")
 	{
 		api.GET("calc/", calculate)
@@ -1149,8 +1254,9 @@ func main() {
 		api.POST("setsales/", setSales)
 		api.GET("makeorders/", mkorders)
 		api.POST("recalcabc/:store", setABC)
-		api.GET("getOrders/", getZakaz)
+		api.GET("getorders/", getZakaz)
 		api.POST("setsalesmatrix/:store", setsalesmatrix)
+		api.POST("setstores/", setstores)
 		//api.DELETE("goods/:id", DeleteProduct)
 	}
 	router.Run(portstr)

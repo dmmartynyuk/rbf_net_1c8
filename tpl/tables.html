@@ -122,8 +122,8 @@ function selectHandler() {
 }
 function exportToCSV(typ) {
     var obj;
-    var fn="table.csv";
-	obj=qtab.datachart;
+    var fn="{{.Tabname}}.csv";
+	obj=gtab.datachart;
     if (!obj.length) {
 		return;
 	}

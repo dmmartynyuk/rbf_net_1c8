@@ -71,11 +71,12 @@ type OrderXML struct {
 	Items       ItemsXML
 }
 
-// store Описание склада
-type store struct {
-	keyStore string
-	name     string
-	tip      string
+// Store Описание склада
+type Store struct {
+	KeyStore string
+	Name     string
+	Tip      string
+	Calendar string
 }
 
 // Contract Описание поставок
@@ -194,6 +195,22 @@ type Predict struct {
 	Days int
 	//Demand прогнозируемая потребность шт в день
 	Demand float64
+}
+
+func escstr(s string) string {
+	res := strings.ReplaceAll(s, "'", "''")
+	res = strings.ReplaceAll(res, ";", "\\;")
+	res = strings.ReplaceAll(res, "\"", "''")
+	res = strconv.Quote(res)
+	return res
+}
+func deescstr(s string) string {
+	res := strings.ReplaceAll(s, "''", "\\'")
+	res = strings.ReplaceAll(res, "\\;", ";")
+	res = strings.ReplaceAll(res, "\\n", "")
+	res = strings.ReplaceAll(res, "\\t", "")
+	res = strings.ReplaceAll(res, "\\r", "")
+	return res
 }
 
 //Dgraf хранит результат для построения графика в виде массива js
@@ -327,7 +344,7 @@ func GetTable(tname string, page int, gate int, cond string) (int, string, []map
 			case int64:
 				value[key] = val.(int64)
 			case string:
-				value[key] = val.(string)
+				value[key] = deescstr(val.(string))
 			case time.Time:
 				value[key] = val.(time.Time)
 			case []uint8:
@@ -346,6 +363,124 @@ func GetTable(tname string, page int, gate int, cond string) (int, string, []map
 	}
 	return rcount, s, result, err
 
+}
+
+//InsertTableData изменяет таблицу tabname
+func InsertTableData(tabname string, matr []map[string]interface{}) error {
+	itrans := 500
+	s := ""
+	i := 0
+	for _, m := range matr {
+		flds := ""
+		val := ""
+		comma := ""
+		for k, v := range m {
+			flds = flds + comma + k
+			switch v.(type) {
+			case float64:
+				val = val + comma + strconv.FormatFloat((v.(float64)), 'f', -1, 64)
+			case int64:
+				val = val + comma + strconv.FormatInt((v.(int64)), 10)
+			case int:
+				val = val + comma + strconv.FormatInt(int64(v.(int)), 10)
+			case float32:
+				val = val + comma + strconv.FormatFloat(float64(v.(float64)), 'f', -1, 64)
+			case time.Time:
+				val = val + comma + (v.(time.Time)).Format("2006-01-02T15:04:05")
+			case bool:
+				if (v.(bool)) == true {
+					val = val + comma + "true"
+				} else {
+					val = val + comma + "false"
+				}
+			case string:
+				val = val + comma + escstr(v.(string))
+			}
+			comma = ","
+		}
+		s = s + "INSERT OR REPLACE INTO " + tabname + " (" + flds + ") VALUES(" + val + ");"
+		i++
+		if i > itrans {
+			i = 0
+			s = "BEGIN TRANSACTION;" + s + "COMMIT TRANSACTION;"
+			_, err := DB.Exec(s)
+			if err != nil {
+				DB.Exec("ROLLBACK TRANSACTION;")
+				return err
+			}
+			s = ""
+		}
+	}
+	if s != "" {
+		s = "BEGIN TRANSACTION;" + s + "COMMIT TRANSACTION;"
+		_, err := DB.Exec(s)
+		if err != nil {
+			DB.Exec("ROLLBACK TRANSACTION;")
+			return err
+		}
+	}
+	return nil
+}
+
+//UpdateTableData изменяет таблицу tabname согласно условию w
+func UpdateTableData(tabname string, matr []map[string]interface{}, w map[string]string) error {
+	itrans := 500
+	cond := ""
+	where := " where "
+	for k, v := range w {
+		where = where + cond + k + escstr(v)
+		cond = " and "
+	}
+	s := ""
+	i := 0
+	for _, m := range matr {
+		val := ""
+		comma := ""
+		for k, v := range m {
+			switch v.(type) {
+			case float64:
+				val = val + comma + " set " + k + "=" + strconv.FormatFloat((v.(float64)), 'f', -1, 64)
+			case float32:
+				val = val + comma + " set " + k + "=" + strconv.FormatFloat(float64(v.(float32)), 'f', -1, 64)
+			case int64:
+				val = val + comma + " set " + k + "=" + strconv.FormatInt((v.(int64)), 10)
+			case int:
+				val = val + comma + " set " + k + "=" + strconv.FormatInt(int64(v.(int)), 10)
+			case time.Time:
+				val = val + comma + " set " + k + "=" + (v.(time.Time)).Format("2006-01-02T15:04:05")
+			case bool:
+				if (v.(bool)) == true {
+					val = val + comma + " set " + k + "=true"
+				} else {
+					val = val + comma + " set " + k + "=false"
+				}
+			case string:
+				val = val + comma + " set  " + k + "=" + escstr(v.(string))
+			}
+			comma = ","
+		}
+		s = s + "UPDATE " + escstr(tabname) + val + where + ";"
+		i++
+		if i > itrans {
+			i = 0
+			s = "BEGIN TRANSACTION;" + s + "COMMIT TRANSACTION;"
+			_, err := DB.Exec(s)
+			if err != nil {
+				DB.Exec("ROLLBACK TRANSACTION;")
+				return err
+			}
+			s = ""
+		}
+	}
+	if s != "" {
+		s = "BEGIN TRANSACTION;" + s + "COMMIT TRANSACTION;"
+		_, err := DB.Exec(s)
+		if err != nil {
+			DB.Exec("ROLLBACK TRANSACTION;")
+			return err
+		}
+	}
+	return nil
 }
 
 //GetConfig возвращает мап конфигурации
@@ -673,55 +808,7 @@ func SaveSales(uidStore string, uidGoods string, period string, tipmov string, c
 
 //InsRepSales изменяет таблицу продажи товаров
 func InsRepSales(matr []map[string]interface{}) error {
-	itrans := 500
-	s := ""
-	i := 0
-	for _, m := range matr {
-		flds := ""
-		val := ""
-		comma := ""
-		for k, v := range m {
-			flds = flds + comma + k
-			switch v.(type) {
-			case float64:
-				val = val + comma + strconv.FormatFloat((v.(float64)), 'f', -1, 64)
-			case int64:
-				val = val + comma + strconv.FormatInt((v.(int64)), 10)
-			case int:
-				val = val + comma + strconv.FormatInt(int64(v.(int)), 10)
-			case time.Time:
-				val = val + comma + (v.(time.Time)).Format("2006-01-02T15:04:05")
-			case bool:
-				if (v.(bool)) == true {
-					val = val + comma + " true"
-				} else {
-					val = val + comma + "false"
-				}
-			case string:
-				val = val + comma + escstr(v.(string))
-			}
-			comma = ","
-		}
-		s = s + "INSERT OR REPLACE INTO goodsmov (" + flds + ") VALUES(" + val + ");"
-		i++
-		if i > itrans {
-			i = 0
-			s = "BEGIN TRANSACTION;" + s + "COMMIT TRANSACTION;"
-			_, err := DB.Exec(s)
-			if err != nil {
-				return err
-			}
-			s = ""
-		}
-	}
-	if s != "" {
-		s = "BEGIN TRANSACTION;" + s + "COMMIT TRANSACTION;"
-		_, err := DB.Exec(s)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	return InsertTableData("goodsmov", matr)
 }
 
 //GetGoodsFromMatrix возвращает матрицу товаров
@@ -804,101 +891,102 @@ func GetAllGoodsFromMatrix(kStore string, kGoods string) (mg []MatrixGoods, err 
 	return mg, nil
 }
 
-func escstr(s string) string {
-	res := strings.ReplaceAll(s, "'", "''")
-	//res = strings.ReplaceAll(res, ";", "\;")
-	res = strconv.Quote(res)
-	return res
-}
-
 //UpdateMatrix изменяет таблицу матрицы товаров
 func UpdateMatrix(m map[string]interface{}, w map[string]string) error {
-	s := "update salesmatrix "
-	comma := ""
-	for k, v := range m {
-		switch v.(type) {
-		case float64:
-			s = s + comma + " set  " + k + "=" + strconv.FormatFloat((v.(float64)), 'f', -1, 64)
-		case int64:
-			s = s + comma + " set  " + k + "=" + strconv.FormatInt((v.(int64)), 10)
-		case int:
-			s = s + comma + " set  " + k + "=" + strconv.FormatInt(int64(v.(int)), 10)
-		case bool:
-			if (v.(bool)) == true {
-				s = s + comma + " set  " + k + "= true"
-			} else {
-				s = s + comma + " set  " + k + "= false"
+	matr := make([]map[string]interface{}, 0, 1)
+	matr = append(matr, m)
+	return UpdateTableData("salesmatrix", matr, w)
+	/*
+		s := "update salesmatrix "
+		comma := ""
+		for k, v := range m {
+			switch v.(type) {
+			case float64:
+				s = s + comma + " set  " + k + "=" + strconv.FormatFloat((v.(float64)), 'f', -1, 64)
+			case int64:
+				s = s + comma + " set  " + k + "=" + strconv.FormatInt((v.(int64)), 10)
+			case int:
+				s = s + comma + " set  " + k + "=" + strconv.FormatInt(int64(v.(int)), 10)
+			case bool:
+				if (v.(bool)) == true {
+					s = s + comma + " set  " + k + "= true"
+				} else {
+					s = s + comma + " set  " + k + "= false"
+				}
+			case string:
+				s = s + comma + " set  " + k + "= " + escstr(v.(string))
+			default:
+				s = s + comma + " set  " + k + "= " + escstr(v.(string))
 			}
-		case string:
-			s = s + comma + " set  " + k + "= " + escstr(v.(string))
-		default:
-			s = s + comma + " set  " + k + "= " + escstr(v.(string))
+			comma = ","
 		}
-		comma = ","
-	}
-	s = s + " where "
-	cond := ""
-	for k, v := range w {
-		s = s + cond + k + "=" + escstr(v)
-		cond = " and "
-	}
-	_, err := DB.Exec(s)
-	if err != nil {
-		return err
-	}
-	return nil
+		s = s + " where "
+		cond := ""
+		for k, v := range w {
+			s = s + cond + k + "=" + escstr(v)
+			cond = " and "
+		}
+		_, err := DB.Exec(s)
+		if err != nil {
+			return err
+		}
+		return nil
+	*/
 }
 
 //ReplaceMatrix изменяет таблицу матрицы товаров
 func ReplaceMatrix(matr []map[string]interface{}) error {
-	itrans := 500
-	s := ""
-	i := 0
-	for _, m := range matr {
-		flds := ""
-		val := ""
-		comma := ""
-		for k, v := range m {
-			flds = flds + comma + k
-			switch v.(type) {
-			case float64:
+	return InsertTableData("salesmatrix", matr)
+	/*
+		itrans := 500
+		s := ""
+		i := 0
+		for _, m := range matr {
+			flds := ""
+			val := ""
+			comma := ""
+			for k, v := range m {
+				flds = flds + comma + k
+				switch v.(type) {
+				case float64:
 
-				val = val + comma + strconv.FormatFloat((v.(float64)), 'f', -1, 64)
-			case int64:
-				val = val + comma + strconv.FormatInt((v.(int64)), 10)
-			case int:
-				val = val + comma + strconv.FormatInt(int64(v.(int)), 10)
-			case bool:
-				if (v.(bool)) == true {
-					val = val + comma + " true"
-				} else {
-					val = val + comma + "false"
+					val = val + comma + strconv.FormatFloat((v.(float64)), 'f', -1, 64)
+				case int64:
+					val = val + comma + strconv.FormatInt((v.(int64)), 10)
+				case int:
+					val = val + comma + strconv.FormatInt(int64(v.(int)), 10)
+				case bool:
+					if (v.(bool)) == true {
+						val = val + comma + " true"
+					} else {
+						val = val + comma + "false"
+					}
+				case string:
+					val = val + comma + escstr(v.(string))
 				}
-			case string:
-				val = val + comma + escstr(v.(string))
+				comma = ","
 			}
-			comma = ","
+			s = s + "INSERT OR REPLACE INTO salesmatrix (" + flds + ") VALUES(" + val + ");"
+			i++
+			if i > itrans {
+				i = 0
+				s = "BEGIN TRANSACTION;" + s + "COMMIT TRANSACTION;"
+				_, err := DB.Exec(s)
+				if err != nil {
+					return err
+				}
+				s = ""
+			}
 		}
-		s = s + "INSERT OR REPLACE INTO salesmatrix (" + flds + ") VALUES(" + val + ");"
-		i++
-		if i > itrans {
-			i = 0
+		if s != "" {
 			s = "BEGIN TRANSACTION;" + s + "COMMIT TRANSACTION;"
 			_, err := DB.Exec(s)
 			if err != nil {
 				return err
 			}
-			s = ""
 		}
-	}
-	if s != "" {
-		s = "BEGIN TRANSACTION;" + s + "COMMIT TRANSACTION;"
-		_, err := DB.Exec(s)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+		return nil
+	*/
 }
 
 //GetProfit возвращвет прибыль для магазина uidStore
