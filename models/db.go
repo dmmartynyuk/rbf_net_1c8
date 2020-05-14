@@ -366,7 +366,7 @@ func GetTable(tname string, page int, gate int, cond string) (int, string, []map
 }
 
 //InsertTableData изменяет таблицу tabname
-func InsertTableData(tabname string, matr []map[string]interface{}) error {
+func InsertTableData(tabname string, matr []map[string]interface{}, keydel map[string]string) error {
 	itrans := 500
 	s := ""
 	i := 0
@@ -374,31 +374,43 @@ func InsertTableData(tabname string, matr []map[string]interface{}) error {
 		flds := ""
 		val := ""
 		comma := ""
+		and := ""
+		del := ""
 		for k, v := range m {
 			flds = flds + comma + k
+			delcomp, ok := keydel[k]
+			var valstr string
 			switch v.(type) {
 			case float64:
-				val = val + comma + strconv.FormatFloat((v.(float64)), 'f', -1, 64)
+				valstr = strconv.FormatFloat((v.(float64)), 'f', -1, 64)
 			case int64:
-				val = val + comma + strconv.FormatInt((v.(int64)), 10)
+				valstr = strconv.FormatInt((v.(int64)), 10)
 			case int:
-				val = val + comma + strconv.FormatInt(int64(v.(int)), 10)
+				valstr = strconv.FormatInt(int64(v.(int)), 10)
 			case float32:
-				val = val + comma + strconv.FormatFloat(float64(v.(float64)), 'f', -1, 64)
+				valstr = strconv.FormatFloat(float64(v.(float64)), 'f', -1, 64)
 			case time.Time:
-				val = val + comma + (v.(time.Time)).Format("2006-01-02T15:04:05")
+				valstr = (v.(time.Time)).Format("2006-01-02T15:04:05")
 			case bool:
 				if (v.(bool)) == true {
-					val = val + comma + "true"
+					valstr = "true"
 				} else {
-					val = val + comma + "false"
+					valstr = "false"
 				}
 			case string:
-				val = val + comma + escstr(v.(string))
+				valstr = escstr(v.(string))
+			}
+			val = val + comma + valstr
+			if ok {
+				del = del + and + k + delcomp + valstr
+				and = " and "
 			}
 			comma = ","
 		}
-		s = s + "INSERT OR REPLACE INTO " + tabname + " (" + flds + ") VALUES(" + val + ");"
+		if len(del) > 0 {
+			del = "DELETE FROM " + tabname + " WHERE " + del + "; "
+		}
+		s = s + del + "INSERT OR REPLACE INTO " + tabname + " (" + flds + ") VALUES(" + val + ");"
 		i++
 		if i > itrans {
 			i = 0
@@ -479,6 +491,23 @@ func UpdateTableData(tabname string, matr []map[string]interface{}, w map[string
 			DB.Exec("ROLLBACK TRANSACTION;")
 			return err
 		}
+	}
+	return nil
+}
+
+//DeleteTableData изменяет таблицу tabname согласно условию w
+func DeleteTableData(tabname string, w map[string]string) error {
+	cond := ""
+	where := ""
+	for k, v := range w {
+		where = where + cond + k + escstr(v)
+		cond = " and "
+	}
+	s := "DELETE FROM " + tabname + " WHERE " + where
+	_, err := DB.Exec(s)
+	if err != nil {
+		DB.Exec("ROLLBACK TRANSACTION;")
+		return err
 	}
 	return nil
 }
@@ -807,8 +836,8 @@ func SaveSales(uidStore string, uidGoods string, period string, tipmov string, c
 }
 
 //InsRepSales изменяет таблицу продажи товаров
-func InsRepSales(matr []map[string]interface{}) error {
-	return InsertTableData("goodsmov", matr)
+func InsRepSales(matr []map[string]interface{}, keyfordel map[string]string) error {
+	return InsertTableData("goodsmov", matr, keyfordel)
 }
 
 //GetGoodsFromMatrix возвращает матрицу товаров
@@ -935,8 +964,8 @@ func UpdateMatrix(m map[string]interface{}, w map[string]string) error {
 }
 
 //ReplaceMatrix изменяет таблицу матрицы товаров
-func ReplaceMatrix(matr []map[string]interface{}) error {
-	return InsertTableData("salesmatrix", matr)
+func ReplaceMatrix(matr []map[string]interface{}, w map[string]string) error {
+	return InsertTableData("salesmatrix", matr, w)
 	/*
 		itrans := 500
 		s := ""
@@ -1265,6 +1294,20 @@ func GetZakazXML(period string) ([]OrderXML, error) {
 
 	var err error
 	var rows *sql.Rows
+	if period != "last" {
+		t, err := time.Parse("2006-01-02T15:04:05", period)
+		if err != nil {
+			//формат даты другой
+			t, err = time.Parse("2006-01-02", period)
+			if err != nil {
+				period = "last"
+			} else {
+				period = t.Format("2006-01-02")
+			}
+		} else {
+			period = t.Format("2006-01-02")
+		}
+	}
 	if period == "last" {
 		rows, err = DB.Query("Select period from oper ORDER BY period DESC Limit 1;")
 		if err != nil {
@@ -1280,10 +1323,10 @@ func GetZakazXML(period string) ([]OrderXML, error) {
 			}
 		}
 		rows.Close()
-		//t, _ := time.Parse("2006-01-02T", p)
-		period = p //t.Format("2006-01-02")
+		period = p
 	}
-	rows, err = DB.Query("Select uidStore, uidGoods, provider, period, cnt, nextper, NumDoc from oper WHERE period>=$1 ORDER BY NumDoc,provider,uidStore;", period)
+
+	rows, err = DB.Query("Select uidStore, uidGoods, provider, period, cnt, nextper, NumDoc from oper WHERE date(period)=date($1) ORDER BY NumDoc,provider,uidStore;", period)
 	if err != nil {
 		return orders, err
 		//log.Panic(err)
