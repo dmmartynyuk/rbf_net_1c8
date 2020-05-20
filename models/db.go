@@ -197,6 +197,54 @@ type Predict struct {
 	Demand float64
 }
 
+func escape(source string) string {
+	var j int = 0
+	if len(source) == 0 {
+		return ""
+	}
+	tempStr := source[:]
+	desc := make([]byte, len(tempStr)*2)
+	for i := 0; i < len(tempStr); i++ {
+		flag := false
+		var escape byte
+		switch tempStr[i] {
+		case '\r':
+			flag = true
+			escape = '\r'
+			break
+		case '\n':
+			flag = true
+			escape = '\n'
+			break
+		case '\\':
+			flag = true
+			escape = '\\'
+			break
+		case '\'':
+			flag = true
+			escape = '\''
+			break
+		case '"':
+			flag = true
+			escape = '"'
+			break
+		case '\032':
+			flag = true
+			escape = 'Z'
+			break
+		default:
+		}
+		if flag {
+			desc[j] = '\\'
+			desc[j+1] = escape
+			j = j + 2
+		} else {
+			desc[j] = tempStr[i]
+			j = j + 1
+		}
+	}
+	return string(desc[0:j])
+}
 func escstr(s string) string {
 	res := strings.ReplaceAll(s, "'", "''")
 	res = strings.ReplaceAll(res, ";", "\\;")
@@ -206,6 +254,7 @@ func escstr(s string) string {
 }
 func deescstr(s string) string {
 	res := strings.ReplaceAll(s, "''", "\\'")
+	res = strings.ReplaceAll(res, `\"`, `"`)
 	res = strings.ReplaceAll(res, "\\;", ";")
 	res = strings.ReplaceAll(res, "\\n", "")
 	res = strings.ReplaceAll(res, "\\t", "")
@@ -268,8 +317,8 @@ func GetTable(tname string, page int, gate int, cond string) (int, string, []map
 	if cond == "" {
 		recs = "select count(*) from " + tname + ";"
 	} else {
-		where = " where " + escstr(cond)
-		recs = "select count(*) from " + escstr(tname) + where + ";"
+		where = " where " + escape(cond)
+		recs = "select count(*) from " + escape(tname) + where + ";"
 	}
 	rows, err := DB.Query(recs)
 	if err != nil {
@@ -291,7 +340,7 @@ func GetTable(tname string, page int, gate int, cond string) (int, string, []map
 		s = "select uid, name,groupname, art from goods" + where + " order by groupname, art " + limit + ";"
 	case "contracts":
 		//s = "select ROWID, provider,recipient,chedord,cheddeliv,delivdays from contracts" + where + limit + ";"
-		s = "select c.ROWID, c.provider as поставщик,c.recipient as получатель, s.name as имяполучателя,c.chedord as графикзаказов,c.cheddeliv as графикдоставки,c.delivdays as днейдоставки from contracts as c left join stores as s on c.recipient=s.uid" + where + limit + ";"
+		s = "select c.ROWID, c.provider as provider,c.recipient as recipient, s.name as recname,c.chedord as chedord,c.delivdays as delivdays from contracts as c left join stores as s on c.recipient=s.uid" + where + limit + ";"
 	case "contactgoods":
 		s = "select c.ROWID, c.uidprovider,c.uidgoods as uid,s.name as номенклатура, s.art as артикул, c.providerArt as АртПоставщика  from contractgoods as c left join goods as s on c.uidgoods=s.uid" + where + " order by s.art " + limit + ";"
 	case "salesmatrix":
@@ -335,7 +384,7 @@ func GetTable(tname string, page int, gate int, cond string) (int, string, []map
 			//приводим к интерфейсу
 			val := *(row[i]).(*interface{})
 			if val == nil {
-				value[key] = nil
+				value[key] = "null"
 				continue
 			}
 			switch val.(type) {
@@ -353,6 +402,8 @@ func GetTable(tname string, page int, gate int, cond string) (int, string, []map
 				value[key] = val.(float64)
 			case bool:
 				value[key] = val.(bool)
+			case nil:
+				value[key] = "?"
 			default:
 				value[key] = val.(string)
 				//fmt.Printf("unsupport data type '%s' now\n", vType)
@@ -398,7 +449,7 @@ func InsertTableData(tabname string, matr []map[string]interface{}, keydel map[s
 					valstr = "false"
 				}
 			case string:
-				valstr = escstr(v.(string))
+				valstr = escape(v.(string))
 			}
 			val = val + comma + valstr
 			if ok {
@@ -437,41 +488,44 @@ func InsertTableData(tabname string, matr []map[string]interface{}, keydel map[s
 //UpdateTableData изменяет таблицу tabname согласно условию w
 func UpdateTableData(tabname string, matr []map[string]interface{}, w map[string]string) error {
 	itrans := 500
-	cond := ""
+	var and string
+
 	where := " where "
 	for k, v := range w {
-		where = where + cond + k + escstr(v)
-		cond = " and "
+		where = where + and + k + "='" + escape(v) + "'"
+		and = " and "
 	}
 	s := ""
 	i := 0
 	for _, m := range matr {
 		val := ""
 		comma := ""
+		set := " set "
 		for k, v := range m {
 			switch v.(type) {
 			case float64:
-				val = val + comma + " set " + k + "=" + strconv.FormatFloat((v.(float64)), 'f', -1, 64)
+				val = val + comma + set + k + "=" + strconv.FormatFloat((v.(float64)), 'f', -1, 64)
 			case float32:
-				val = val + comma + " set " + k + "=" + strconv.FormatFloat(float64(v.(float32)), 'f', -1, 64)
+				val = val + comma + set + k + "=" + strconv.FormatFloat(float64(v.(float32)), 'f', -1, 64)
 			case int64:
-				val = val + comma + " set " + k + "=" + strconv.FormatInt((v.(int64)), 10)
+				val = val + comma + set + k + "=" + strconv.FormatInt((v.(int64)), 10)
 			case int:
-				val = val + comma + " set " + k + "=" + strconv.FormatInt(int64(v.(int)), 10)
+				val = val + comma + set + k + "=" + strconv.FormatInt(int64(v.(int)), 10)
 			case time.Time:
-				val = val + comma + " set " + k + "=" + (v.(time.Time)).Format("2006-01-02T15:04:05")
+				val = val + comma + set + k + "='" + (v.(time.Time)).Format("2006-01-02T15:04:05") + "'"
 			case bool:
 				if (v.(bool)) == true {
-					val = val + comma + " set " + k + "=true"
+					val = val + comma + set + k + "=true"
 				} else {
-					val = val + comma + " set " + k + "=false"
+					val = val + comma + set + k + "=false"
 				}
 			case string:
-				val = val + comma + " set  " + k + "=" + escstr(v.(string))
+				val = val + comma + set + k + "='" + escape(v.(string)) + "'"
 			}
 			comma = ","
+			set = ""
 		}
-		s = s + "UPDATE " + escstr(tabname) + val + where + ";"
+		s = s + "UPDATE " + tabname + val + where + ";"
 		i++
 		if i > itrans {
 			i = 0
@@ -500,7 +554,7 @@ func DeleteTableData(tabname string, w map[string]string) error {
 	cond := ""
 	where := ""
 	for k, v := range w {
-		where = where + cond + k + escstr(v)
+		where = where + cond + k + escape(v)
 		cond = " and "
 	}
 	s := "DELETE FROM " + tabname + " WHERE " + where
@@ -510,6 +564,77 @@ func DeleteTableData(tabname string, w map[string]string) error {
 		return err
 	}
 	return nil
+}
+
+//GetCatalog вернет json дерево номенклатуры для отображения в шаблоне
+func GetCatalog() (string, error) {
+	var s string
+	type catalog struct {
+		uid    string
+		name   string
+		art    string
+		group  string
+		grname string
+		icon   string
+	}
+	var gds catalog
+	/*
+			[
+		  {
+		    text: "Parent 1",
+		    nodes: [
+		      {
+		        text: "Child 1",
+		        nodes: [
+		          {
+		            text: "Grandchild 1"
+		          },
+		          {
+		            text: "Grandchild 2"
+		          }
+		        ]
+		      },
+		      {
+		        text: "Child 2"
+		      }
+		    ]
+		  },
+	*/
+	s = "select g.uid, g.name as name, g.art as art, g.groupname as code,ifnull(gr.name,'') as grname, ifNULL(gr.icon,'') as icon from goods as g left join groups as gr on g.groupname=gr.code order by g.groupname;"
+	rows, err := DB.Query(s)
+	if err != nil {
+		return "[]", err
+		//log.Panic(err)
+	}
+	defer rows.Close()
+	var prevgr string
+	var icon string
+	var nodes string
+	var cat string
+	catcomma := ""
+	comma := ""
+	for rows.Next() {
+		err := rows.Scan(&gds.uid, &gds.name, &gds.art, &gds.group, &gds.grname, &gds.icon)
+		if err != nil {
+			rows.Close()
+			return "[]", err
+		}
+		if prevgr != gds.group {
+			cat = cat + catcomma + "{text:" + escape(prevgr) + ",icon:" + icon + ",nodes:[" + nodes + "]}"
+			prevgr = gds.group
+			nodes = ""
+			comma = ""
+			catcomma = ","
+		}
+		nodes = nodes + comma + "{ text:" + escape(gds.name) + "}"
+		comma = ","
+	}
+	if len(nodes) > 0 {
+		cat = cat + catcomma + "{text:" + escape(prevgr) + ",icon:" + icon + ",nodes:[" + nodes + "]}"
+	}
+
+	return "[" + cat + "]", nil
+
 }
 
 //GetConfig возвращает мап конфигурации
@@ -552,9 +677,9 @@ func (c Config) Save() (string, error) {
 				rows.Close()
 				continue
 			}
-			s = append(s, "update config set value="+escstr(v)+" where name="+escstr(k)+";")
+			s = append(s, "update config set value="+escape(v)+" where name="+escape(k)+";")
 		} else {
-			s = append(s, "insert into config (name, value) values("+escstr(k)+","+escstr(v)+");")
+			s = append(s, "insert into config (name, value) values("+escape(k)+","+escape(v)+");")
 		}
 		rows.Close()
 	}

@@ -3,11 +3,13 @@
 <html>
 <head>
 <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
-<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.1.3/css/bootstrap.min.css" crossorigin="anonymous">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/material-design-iconic-font/2.2.0/css/material-design-iconic-font.min.css">
-<!-- Material Design Bootstrap -->
-<link href="https://cdnjs.cloudflare.com/ajax/libs/mdbootstrap/4.16.0/css/mdb.min.css" rel="stylesheet">
+<!-- <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.1.3/css/bootstrap.min.css" crossorigin="anonymous">  -->
+<link href="/assets/css/bootstrap.min.css" rel="stylesheet">
+<link type="text/css" rel="stylesheet" href="/assets/css/jsgrid.min.css" />
+<link type="text/css" rel="stylesheet" href="/assets/css/jsgrid-theme.min.css"/>
+
 <link href="/assets/css/dashboard.css" rel="stylesheet">
+
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
 <meta name="description" content="{{.PageDescription}}">
@@ -54,6 +56,9 @@
       <li class="nav-item{{setActive .Page "tables" }}">
         <a class="nav-link" href="/tables">Справочники{{if eq .Page "tables"}}<span class="sr-only">(current)</span>{{end}}</a>
       </li>
+	  <li class="nav-item{{setActive .Page "tables" }}">
+        <a class="nav-link" href="/tables">Заказы поставщикам{{if eq .Page "tables"}}<span class="sr-only">(current)</span>{{end}}</a>
+      </li>
       <li class="nav-item dropdown{{setActive .Page "dropdown" }}">
         <a class="nav-link dropdown-toggle" href="#" id="dropdown01" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">Движения</a>
         <div class="dropdown-menu" aria-labelledby="dropdown01">
@@ -81,10 +86,12 @@
   <p>&copy; Company 2019-2020</p>
 </footer>
 <!-- Placed at the end of the document so the pages load faster -->
-    <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script>
+    <!-- <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script>  -->
+	<script src="/assets/js/jquery-3.5.1.min.js"></script>
     <script>window.jQuery || document.write('<script src="/assets/js/jquery-slim.min.js"><\/script>')</script>
     <script src="/assets/js/popper.min.js"></script>
     <script src="/assets/js/bootstrap.min.js"></script>
+	<script type="text/javascript" src="/assets/js/jsgrid.min.js"></script>
 	<!-- MDB core JavaScript -->
 <!--	<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/mdbootstrap/4.16.0/js/mdb.min.js"></script> -->
 {{template "jscript" .}}

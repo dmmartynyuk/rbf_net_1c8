@@ -48,23 +48,25 @@
         </div>
         <div id="tab_divcons"></div>
           <h3>{{.Rutabname}} </h3>
+		  <div id="cat_div"></div>
           <div id="tab_div"></div>
+<!-- Paginator
 		  <nav aria-label="Page navigation example">
   <ul class="pagination">
     <li class="page-item">
-      <a class="page-link" href="/tables?tab={{.Tabname}}&pg={{.Prevpages}}&gate={{.Gate}}" aria-label="Previous">
+      <a class="page-link" href="/tables?tab={{.Tabname}}&pageIndex={{.Prevpages}}&pageSize={{.PageSize}}" aria-label="Previous">
         <span aria-hidden="true">&laquo;</span>
         <span class="sr-only">Предидущий</span>
       </a>
     </li>
 	{{range $index, $value := .Pagination}}
-    <li class="page-item{{if eq $index $.Pg}} active{{end}}">
-        <a id="page{{$index}}" class="page-link"  href="/tables?tab={{$.Tabname}}&pg={{$value}}&gate={{$.Gate}}">{{$value}}</a>
+    <li class="page-item{{if eq $index $.PageIndex}} active{{end}}">
+        <a id="page{{$index}}" class="page-link"  href="/tables?tab={{$.Tabname}}&pageIndex={{$value}}&pageSize={{$.PageSize}}">{{$value}}</a>
     </li>
     {{end}}
 	{{if gt .Nextpages 0}}
     <li class="page-item">
-      <a class="page-link" href="/tables?tab={{.Tabname}}&pg={{.Nextpages}}&gate={{.Gate}}" aria-label="Next">
+      <a class="page-link" href="/tables?tab={{.Tabname}}&pageIndex={{.Nextpages}}&pageSize={{.PageSize}}" aria-label="Next">
         <span aria-hidden="true">&raquo;</span>
         <span class="sr-only">Следующий</span>
       </a>
@@ -72,6 +74,7 @@
 	{{end}}
   </ul>
 </nav>
+-->
         </main>
      </div>  
 </div>
@@ -84,42 +87,7 @@ var gtab ={
          title: 'Данные справочника'
 	}
 }
-google.charts.load('current', {'packages':['corechart','table']});
-google.charts.setOnLoadCallback(drawTable);
-function drawTable() {
-        //var data = new google.visualization.DataTable();
-        var data = google.visualization.arrayToDataTable(gtab.datachart);
-	      //data.addColumn('string', 'период');
-        var table = new google.visualization.Table(document.getElementById('tab_div'));
-        table.draw(data, {allowHtml: true, showRowNumber: true, width: '100%', height: '100%'});
-		//google.visualization.events.addListener(table, 'select', selectHandler);
-		google.visualization.events.addListener(table, 'select', function() {
-			var row = table.getSelection()[0].row;
-			//alert('You selected ' + data.getValue(row, 0));
-		});
-} 
 
-
-function selectHandler() {
-  //alert('A table row was selected'+this.RowIndex);
-  var selection = this.getSelection();
-  var message = '';
-
-  for (var i = 0; i < selection.length; i++) {
-    var item = selection[i];
-    if (item.row != null && item.column != null) {
-      message += '{row:' + item.row + ',column:' + item.column + '}';
-    } else if (item.row != null) {
-      message += '{row:' + item.row + '}';
-    } else if (item.column != null) {
-      message += '{column:' + item.column + '}';
-    }
-  }
-  if (message == '') {
-    message = 'nothing';
-  }
-  alert('You selected ' + message);
-}
 function exportToCSV(typ) {
     var obj;
     var fn="{{.Tabname}}.csv";
@@ -146,5 +114,60 @@ function exportToCSV(typ) {
 	link.click();
     document.body.removeChild(link); 
 }
+$(function() {
+	var db =
+	{
+		loadData: function(filter) {
+			return $.ajax({
+				type: "GET",
+				url: "/api/{{.Tabname}}/",
+				data: filter
+			});
+		},
+		insertItem: function(item) {
+			return $.ajax({
+				type: "POST",
+				url: "/api/{{.Tabname}}/",
+				data: item
+			});
+		},
+		updateItem: function(item) {
+			return $.ajax({
+				type: "PUT",
+				url: "/api/{{.Tabname}}/",
+				data: item
+			});
+		},
+		deleteItem: function(item) {
+			return $.ajax({
+				type: "DELETE",
+				url: "/api/{{.Tabname}}/",
+				data: item
+			});
+		},
+	};
+ 
+    $("#tab_div").jsGrid({
+        height: "92%",
+        width: "100%",
+ 
+        filtering: true,
+        editing: true,
+        sorting: true,
+        paging: true,
+        autoload: true,
+ 
+        pageSize: 25,
+        pageButtonCount: 5,
+ 
+        deleteConfirm: "Вы действительно хотите удалить запись?",
+ 
+        controller: db,
+		pageLoading :true,
+
+        fields: {{.Fields}}
+    });
+ 
+});
 </script>
 {{end}}
