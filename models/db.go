@@ -197,7 +197,8 @@ type Predict struct {
 	Demand float64
 }
 
-func escape(source string) string {
+//Escape экранирует символы для sql
+func Escape(source string) string {
 	var j int = 0
 	if len(source) == 0 {
 		return ""
@@ -314,11 +315,27 @@ func GetTable(tname string, page int, gate int, cond string) (int, string, []map
 	var rcount int
 	limit := " limit " + strconv.Itoa(gate*page) + "," + strconv.Itoa(gate)
 	var where string
-	if cond == "" {
-		recs = "select count(*) from " + tname + ";"
-	} else {
-		where = " where " + escape(cond)
-		recs = "select count(*) from " + escape(tname) + where + ";"
+	if len(cond) > 0 {
+		where = " where " + cond
+	}
+	switch tname {
+	case "stores":
+		s = "select uid, name, tip from stores" + where + limit + ";"
+		recs = "select count(*) from stores " + where + ";"
+	case "goods":
+		s = "select uid, name,groupname, art from goods" + where + " order by groupname, art " + limit + ";"
+		recs = "select count(*) from goods " + where + ";"
+	case "contracts":
+		//s = "select ROWID, provider,recipient,chedord,cheddeliv,delivdays from contracts" + where + limit + ";"
+		s = "select c.ROWID, c.provider as provider,c.recipient as recipient, c.providername as providername, s.name as recname,c.chedord as chedord,c.delivdays as delivdays from contracts as c left join stores as s on c.recipient=s.uid" + where + limit + ";"
+		recs = "select count(c.ROWID) from contracts as c left join stores as s on c.recipient=s.uid" + where + ";"
+	case "contactgoods":
+		s = "select c.ROWID, c.uidprovider,c.uidgoods as uid,s.name as goodsname, s.art as art, c.providerArt as providerart from contractgoods as c left join goods as s on c.uidgoods=s.uid" + where + " order by s.art " + limit + ";"
+		recs = "select count(c.ROWID) from contractgoods as c left join goods as s on c.uidgoods=s.uid" + where + ";"
+	case "salesmatrix":
+		//s = "select s.uidStore,st.name as Склад,s.uidGoods as uidТовара,g.name as Номенклатура, g.Art as артикул,s.minbalance as МинОстаток,s.maxbalance as МаксОстаток,s.cost,s.vitrina,s.midperiod,s.demand,s.price,s.margin,s.inuse as ВПродаже,s.abc from salesmatrix as s left join stores as st on s.uidStore=st.uid left join goods as g on s.uidGoods=g.uid" + where + limit + ";"
+		s = "select s.ROWID,s.uidStore,st.name as storename,s.uidGoods as uidGoods,g.groupname as groupname, g.name as goodsname, g.Art as art,s.minbalance as minbalance,s.maxbalance as maxbalance,s.inuse as inuse,s.abc as abc from salesmatrix as s left join stores as st on s.uidStore=st.uid left join goods as g on s.uidGoods=g.uid" + where + " order by st.name, g.groupname, g.art" + limit + ";"
+		recs = "select count(s.ROWID) from salesmatrix as s left join stores as st on s.uidStore=st.uid left join goods as g on s.uidGoods=g.uid" + where + ";"
 	}
 	rows, err := DB.Query(recs)
 	if err != nil {
@@ -333,25 +350,12 @@ func GetTable(tname string, page int, gate int, cond string) (int, string, []map
 		}
 	}
 	rows.Close()
-	switch tname {
-	case "stores":
-		s = "select uid, name, tip from stores" + where + limit + ";"
-	case "goods":
-		s = "select uid, name,groupname, art from goods" + where + " order by groupname, art " + limit + ";"
-	case "contracts":
-		//s = "select ROWID, provider,recipient,chedord,cheddeliv,delivdays from contracts" + where + limit + ";"
-		s = "select c.ROWID, c.provider as provider,c.recipient as recipient, s.name as recname,c.chedord as chedord,c.delivdays as delivdays from contracts as c left join stores as s on c.recipient=s.uid" + where + limit + ";"
-	case "contactgoods":
-		s = "select c.ROWID, c.uidprovider,c.uidgoods as uid,s.name as номенклатура, s.art as артикул, c.providerArt as АртПоставщика  from contractgoods as c left join goods as s on c.uidgoods=s.uid" + where + " order by s.art " + limit + ";"
-	case "salesmatrix":
-		//s = "select s.uidStore,st.name as Склад,s.uidGoods as uidТовара,g.name as Номенклатура, g.Art as артикул,s.minbalance as МинОстаток,s.maxbalance as МаксОстаток,s.cost,s.vitrina,s.midperiod,s.demand,s.price,s.margin,s.inuse as ВПродаже,s.abc from salesmatrix as s left join stores as st on s.uidStore=st.uid left join goods as g on s.uidGoods=g.uid" + where + limit + ";"
-		s = "select s.ROWID,s.uidStore,st.name as Склад,s.uidGoods as uidТовара,g.name as Номенклатура, g.Art as артикул,s.minbalance as МинОстаток,s.maxbalance as МаксОстаток,s.inuse as ВПродаже,s.abc from salesmatrix as s left join stores as st on s.uidStore=st.uid left join goods as g on s.uidGoods=g.uid" + where + " order by st.name, g.groupname, g.art" + limit + ";"
-	}
 	rows, err = DB.Query(s)
 	if err != nil {
 		return 0, s, nil, err
 		//log.Panic(err)
 	}
+	defer rows.Close()
 	columns, err := rows.Columns()
 	if err != nil {
 		return 0, s, nil, err
@@ -395,17 +399,15 @@ func GetTable(tname string, page int, gate int, cond string) (int, string, []map
 			case string:
 				value[key] = deescstr(val.(string))
 			case time.Time:
-				value[key] = val.(time.Time)
+				value[key] = val.(time.Time).Format("2006-01-02T15:04:05")
 			case []uint8:
 				value[key] = string(val.([]uint8))
 			case float64:
 				value[key] = val.(float64)
 			case bool:
 				value[key] = val.(bool)
-			case nil:
-				value[key] = "?"
 			default:
-				value[key] = val.(string)
+				value[key] = "?"
 				//fmt.Printf("unsupport data type '%s' now\n", vType)
 				// TODO remember add other data type
 			}
@@ -449,7 +451,7 @@ func InsertTableData(tabname string, matr []map[string]interface{}, keydel map[s
 					valstr = "false"
 				}
 			case string:
-				valstr = escape(v.(string))
+				valstr = Escape(v.(string))
 			}
 			val = val + comma + valstr
 			if ok {
@@ -492,7 +494,7 @@ func UpdateTableData(tabname string, matr []map[string]interface{}, w map[string
 
 	where := " where "
 	for k, v := range w {
-		where = where + and + k + "='" + escape(v) + "'"
+		where = where + and + k + "='" + Escape(v) + "'"
 		and = " and "
 	}
 	s := ""
@@ -520,7 +522,7 @@ func UpdateTableData(tabname string, matr []map[string]interface{}, w map[string
 					val = val + comma + set + k + "=false"
 				}
 			case string:
-				val = val + comma + set + k + "='" + escape(v.(string)) + "'"
+				val = val + comma + set + k + "='" + Escape(v.(string)) + "'"
 			}
 			comma = ","
 			set = ""
@@ -554,7 +556,7 @@ func DeleteTableData(tabname string, w map[string]string) error {
 	cond := ""
 	where := ""
 	for k, v := range w {
-		where = where + cond + k + escape(v)
+		where = where + cond + k + Escape(v)
 		cond = " and "
 	}
 	s := "DELETE FROM " + tabname + " WHERE " + where
@@ -620,17 +622,17 @@ func GetCatalog() (string, error) {
 			return "[]", err
 		}
 		if prevgr != gds.group {
-			cat = cat + catcomma + "{text:" + escape(prevgr) + ",icon:" + icon + ",nodes:[" + nodes + "]}"
+			cat = cat + catcomma + "{text:" + Escape(prevgr) + ",icon:" + icon + ",nodes:[" + nodes + "]}"
 			prevgr = gds.group
 			nodes = ""
 			comma = ""
 			catcomma = ","
 		}
-		nodes = nodes + comma + "{ text:" + escape(gds.name) + "}"
+		nodes = nodes + comma + "{ text:" + Escape(gds.name) + "}"
 		comma = ","
 	}
 	if len(nodes) > 0 {
-		cat = cat + catcomma + "{text:" + escape(prevgr) + ",icon:" + icon + ",nodes:[" + nodes + "]}"
+		cat = cat + catcomma + "{text:" + Escape(prevgr) + ",icon:" + icon + ",nodes:[" + nodes + "]}"
 	}
 
 	return "[" + cat + "]", nil
@@ -677,9 +679,9 @@ func (c Config) Save() (string, error) {
 				rows.Close()
 				continue
 			}
-			s = append(s, "update config set value="+escape(v)+" where name="+escape(k)+";")
+			s = append(s, "update config set value="+Escape(v)+" where name="+Escape(k)+";")
 		} else {
-			s = append(s, "insert into config (name, value) values("+escape(k)+","+escape(v)+");")
+			s = append(s, "insert into config (name, value) values("+Escape(k)+","+Escape(v)+");")
 		}
 		rows.Close()
 	}
@@ -807,9 +809,15 @@ func GetContracts(r ...string) ([]Contract, error) {
 }
 
 //GetGoods возвращает срез мапов из таблицы товаров.
-func GetGoods(guid string) (*Goods, error) {
+func GetGoods(guid string, q string) (*Goods, error) {
 	st := new(Goods)
-	rows, err := DB.Query("select uid, groupname, name, art from goods where uid =$1;", guid)
+	var rows *sql.Rows
+	var err error
+	if len(q) > 0 {
+		rows, err = DB.Query("select uid, groupname, name, art from goods where art like $1 or name like $1;", q)
+	} else {
+		rows, err = DB.Query("select uid, groupname, name, art from goods where uid =$1;", guid)
+	}
 	if err != nil {
 		return st, err
 		//log.Panic(err)

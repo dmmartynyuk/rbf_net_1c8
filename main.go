@@ -222,12 +222,13 @@ func updateStocks(c *gin.Context) {
 //fetchAllContracts выводит список контрактов
 func fetchAllContracts(c *gin.Context) {
 	type Item struct {
-		ROWID     int64  `json:"rowid" binding:"required"`
-		Provider  string `json:"provider" binding:"required"`
-		Recipient string `json:"recipient" binding:"required"`
-		Recname   string `json:"recname" binding:"required"`
-		Chedord   string `json:"chedord" binding:"required"`
-		Delivdays int64  `json:"delivdays" binding:"required"`
+		ROWID        int64  `json:"rowid" binding:"required"`
+		Provider     string `json:"provider" binding:"required"`
+		Recipient    string `json:"recipient" binding:"required"`
+		Providername string `json:"providername" binding:"required"`
+		Recname      string `json:"recname" binding:"required"`
+		Chedord      string `json:"chedord" binding:"required"`
+		Delivdays    int64  `json:"delivdays" binding:"required"`
 	}
 	rowid := c.DefaultQuery("rowid", "")
 	_, err := strconv.Atoi(rowid)
@@ -236,6 +237,7 @@ func fetchAllContracts(c *gin.Context) {
 	}
 
 	recname := c.DefaultQuery("recname", "")
+	providername := c.DefaultQuery("providername", "")
 	chedord := c.DefaultQuery("chedord", "")
 	delivdays := c.DefaultQuery("delivdays", "")
 	_, err = strconv.Atoi(delivdays)
@@ -263,11 +265,17 @@ func fetchAllContracts(c *gin.Context) {
 		}
 		cond = cond + "s.name='" + recname + "'"
 	}
+	if len(providername) > 0 {
+		if len(cond) > 0 {
+			cond = cond + " and "
+		}
+		cond = cond + "c.providername='" + models.Escape(providername) + "'"
+	}
 	if len(chedord) > 0 {
 		if len(cond) > 0 {
 			cond = cond + " and "
 		}
-		cond = cond + "c.chedord='" + chedord + "'"
+		cond = cond + "c.chedord='" + models.Escape(chedord) + "'"
 	}
 	if len(delivdays) > 0 {
 		if len(cond) > 0 {
@@ -289,9 +297,10 @@ func fetchAllContracts(c *gin.Context) {
 		i.ROWID = (v[0]).(int64)
 		i.Provider = (v[1]).(string)
 		i.Recipient = (v[2]).(string)
-		i.Recname = (v[3]).(string)
-		i.Chedord = (v[4]).(string)
-		i.Delivdays = (v[5]).(int64)
+		i.Providername = (v[3]).(string)
+		i.Recname = (v[4]).(string)
+		i.Chedord = (v[5]).(string)
+		i.Delivdays = (v[6]).(int64)
 		Items = append(Items, i)
 	}
 
@@ -300,42 +309,282 @@ func fetchAllContracts(c *gin.Context) {
 
 //updateContracts обновление контрактов
 func updateContracts(c *gin.Context) {
-	uid := c.PostForm("uid")
-	name := c.PostForm("name")
-	stip := c.PostForm("tip")
-	tipstores, err := strconv.Atoi(stip)
-	if err != nil {
-		tipstores = -100
-	}
-	if len(uid) == 0 || (len(name) == 0 && tipstores == -100) {
-		c.JSON(http.StatusNotFound, gin.H{"data": "[]"})
-		return
+	type Item struct {
+		ROWID        int64  `json:"rowid" binding:"required"`
+		Provider     string `json:"provider" binding:"required"`
+		Recipient    string `json:"recipient" binding:"required"`
+		Providername string `json:"providername" binding:"required"`
+		Recname      string `json:"recname" binding:"required"`
+		Chedord      string `json:"chedord" binding:"required"`
+		Delivdays    int64  `json:"delivdays" binding:"required"`
 	}
 	matr := make(map[string]interface{})
 	cond := make(map[string]string)
-	cond["uid"] = uid
-	if len(name) > 0 {
-		matr["name"] = name
+
+	rowid := c.PostForm("rowid")
+	rid, err := strconv.Atoi(rowid)
+	if err != nil {
+		rowid = ""
 	}
-	if tipstores != -100 {
-		matr["tip"] = int64(tipstores)
+	recname := c.PostForm("recname")
+	providername := c.PostForm("providername")
+	provider := c.PostForm("provider")
+	recipient := c.PostForm("recipient")
+	chedord := c.PostForm("chedord")
+	delivdays := c.PostForm("delivdays")
+	dl, err := strconv.Atoi(delivdays)
+	if err != nil {
+		delivdays = ""
+		dl = 0
+	}
+	if len(rowid) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"data": "[]"})
+		return
+	}
+	cond["rowid"] = rowid
+	if len(chedord) > 0 {
+		matr["chedord"] = chedord
+	}
+	if len(delivdays) > 0 {
+		matr["delivdays"] = int64(dl)
+	}
+	if len(providername) > 0 && providername != "null" {
+		matr["providername"] = providername
 	}
 	m := make([]map[string]interface{}, 1)
 	m[0] = matr
-	err = models.UpdateTableData("stores", m, cond)
+	err = models.UpdateTableData("contracts", m, cond)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"data": "[]", "status": http.StatusBadRequest, "message": err.Error()})
 		return
 	}
-	type Item struct {
-		UID  string `json:"uid" binding:"required"`
-		Name string `json:"name" binding:"required"`
-		Tip  int64  `json:"tip" binding:"required"`
-	}
+
 	var i Item
-	i.UID = uid
-	i.Name = name
-	i.Tip = int64(tipstores)
+	i.ROWID = int64(rid)
+	i.Provider = provider
+	i.Recipient = recipient
+	i.Providername = providername
+	i.Recname = recname
+	i.Chedord = chedord
+	i.Delivdays = int64(dl)
+	c.JSON(http.StatusOK, i)
+}
+
+//fetchAllSalesmatrix выводит матрицу
+func fetchAllSalesmatrix(c *gin.Context) {
+	type Item struct {
+		ROWID      int64   `json:"rowid" binding:"required"`
+		UIDStore   string  `json:"uidstore" binding:"required"`
+		StoreName  string  `json:"storename" binding:"required"`
+		UIDGoods   string  `json:"uidgoods" binding:"required"`
+		GoodsGroup string  `json:"goodsgroup" binding:"required"`
+		GoodsName  string  `json:"goodsname" binding:"required"`
+		Art        string  `json:"art" binding:"required"`
+		Minbalance float64 `json:"minbalance" binding:"required"`
+		Maxbalance float64 `json:"maxbalance" binding:"required"`
+		Inuse      int64   `json:"inuse" binding:"required"`
+		Abc        string  `json:"abc" binding:"required"`
+	}
+	//sortfield:= c.DefaultQuery("sortfield", "")
+	//sortorder:= c.DefaultQuery("sortorder", "") //desc  asc
+	spg := c.DefaultQuery("pageIndex", "1")
+	pg, err := strconv.Atoi(spg)
+	if err != nil {
+		pg = 1
+	}
+	sgate := c.DefaultQuery("pageSize", "25")
+	gate, err := strconv.Atoi(sgate)
+	if err != nil {
+		gate = 25
+	}
+
+	rowid := c.DefaultQuery("rowid", "")
+	_, err = strconv.Atoi(rowid)
+	if err != nil {
+		rowid = ""
+	}
+
+	storename := c.DefaultQuery("storename", "")
+	goodsname := c.DefaultQuery("goodsname", "")
+	goodsgroup := c.DefaultQuery("goodsgroup", "")
+	art := c.DefaultQuery("art", "")
+	abc := c.DefaultQuery("abc", "")
+	minbalance := c.DefaultQuery("minbalance", "")
+	_, err = strconv.Atoi(minbalance)
+	if err != nil {
+		minbalance = ""
+	}
+	maxbalance := c.DefaultQuery("maxbalance", "")
+	_, err = strconv.Atoi(maxbalance)
+	if err != nil {
+		maxbalance = ""
+	}
+	inuse := c.DefaultQuery("inuse", "")
+	_, err = strconv.Atoi(inuse)
+	if err != nil {
+		inuse = ""
+	}
+	if inuse == "-1" {
+		inuse = ""
+	}
+
+	cond := ""
+	if len(rowid) > 0 {
+		cond = "s.rowid=" + rowid
+	}
+	if len(storename) > 0 {
+		if len(cond) > 0 {
+			cond = cond + " and "
+		}
+		cond = cond + "st.name='" + models.Escape(storename) + "'"
+	}
+	if len(goodsname) > 0 {
+		if len(cond) > 0 {
+			cond = cond + " and "
+		}
+		cond = cond + "g.name='" + models.Escape(goodsname) + "'"
+	}
+	if len(goodsgroup) > 0 {
+		if len(cond) > 0 {
+			cond = cond + " and "
+		}
+		cond = cond + "g.groupname='" + models.Escape(goodsgroup) + "'"
+	}
+	if len(art) > 0 {
+		if len(cond) > 0 {
+			cond = cond + " and "
+		}
+		cond = cond + "g.Art='" + models.Escape(art) + "'"
+	}
+	if len(abc) > 0 {
+		if len(cond) > 0 {
+			cond = cond + " and "
+		}
+		cond = cond + "s.abc='" + models.Escape(abc) + "'"
+	}
+	if len(inuse) > 0 {
+		if len(cond) > 0 {
+			cond = cond + " and "
+		}
+		cond = cond + "s.inuse=" + inuse
+	}
+	rows, _, data, err := models.GetTable("salesmatrix", pg-1, gate, cond)
+	if err != nil && rows > 0 {
+		c.JSON(http.StatusNotFound, gin.H{"data": "[]", "status": http.StatusNotFound, "message": err.Error()})
+		return
+	}
+
+	Items := make([]Item, 0, len(data))
+	//нулевая строка содержит имена полей, пропускаем
+	//select s.ROWID,s.uidStore,st.name as storename,s.uidGoods as uidТовара,g.name as goodsname, g.Art as art,s.minbalance as minbalance,s.maxbalance as maxbalance,s.inuse as inuse,s.abc as abc from salesmatrix as s left join stores as st on s.uidStore=st.uid left join goods as g on s.uidGoods=g.uid" + where + " order by st.name, g.groupname, g.art" + limit + ";"
+	for r := 1; r < len(data); r++ {
+		i := Item{}
+		v := data[r]
+		i.ROWID = (v[0]).(int64)
+		i.UIDStore = (v[1]).(string)
+		i.StoreName = (v[2]).(string)
+		i.UIDGoods = (v[3]).(string)
+		i.GoodsGroup = (v[4]).(string)
+		i.GoodsName = (v[5]).(string)
+		i.Art = (v[6]).(string)
+		i.Minbalance = (v[7]).(float64)
+		i.Maxbalance = (v[8]).(float64)
+		i.Inuse = (v[9]).(int64)
+		i.Abc = (v[10]).(string)
+		Items = append(Items, i)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": Items, "itemsCount": rows})
+}
+
+//updateSalesmatrix обновление матрицы
+func updateSalesmatrix(c *gin.Context) {
+	type Item struct {
+		ROWID      int64   `json:"rowid" binding:"required"`
+		UIDStore   string  `json:"uidstore" binding:"required"`
+		StoreName  string  `json:"storename" binding:"required"`
+		UIDGoods   string  `json:"uidgoods" binding:"required"`
+		GoodsGroup string  `json:"goodsgroup" binding:"required"`
+		GoodsName  string  `json:"goodsname" binding:"required"`
+		Art        string  `json:"art" binding:"required"`
+		Minbalance float64 `json:"minbalance" binding:"required"`
+		Maxbalance float64 `json:"maxbalance" binding:"required"`
+		Inuse      int64   `json:"inuse" binding:"required"`
+		Abc        string  `json:"abc" binding:"required"`
+	}
+	matr := make(map[string]interface{})
+	cond := make(map[string]string)
+
+	rowid := c.PostForm("rowid")
+	rid, err := strconv.Atoi(rowid)
+	if err != nil {
+		rowid = ""
+	}
+	art := c.PostForm("art")
+	uidstore := c.PostForm("uidstore")
+	storename := c.PostForm("storename")
+	goodsgroup := c.PostForm("goodsgroup")
+	uidgoods := c.PostForm("uidgoods")
+	goodsname := c.PostForm("goodsname")
+	abc := c.PostForm("abc")
+	minbalance := c.PostForm("minbalance")
+	minb, err := strconv.ParseFloat(minbalance, 64)
+	if err != nil {
+		minbalance = ""
+
+	}
+	maxbalance := c.PostForm("maxbalance")
+	maxb, err := strconv.ParseFloat(maxbalance, 64)
+	if err != nil {
+		maxbalance = ""
+	}
+	inuse, err := strconv.Atoi(c.PostForm("inuse"))
+	if err != nil {
+		inuse = -1
+	}
+	if len(rowid) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"data": "[]"})
+		return
+	}
+	cond["rowid"] = rowid
+	if len(maxbalance) > 0 {
+		matr["maxbalance"] = float64(maxb)
+	}
+	if len(minbalance) > 0 {
+		matr["minbalance"] = float64(minb)
+	}
+	if len(uidstore) > 0 && uidstore != "null" {
+		matr["uidstore"] = uidstore
+	}
+	if len(uidgoods) > 0 && uidgoods != "null" {
+		matr["uidgoods"] = uidgoods
+	}
+	if len(abc) > 0 {
+		matr["abc"] = abc
+	}
+	if inuse != -1 {
+		matr["inuse"] = int64(inuse)
+	}
+	m := make([]map[string]interface{}, 1)
+	m[0] = matr
+	err = models.UpdateTableData("salesmatrix", m, cond)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"data": "[]", "status": http.StatusBadRequest, "message": err.Error()})
+		return
+	}
+
+	var i Item
+	i.ROWID = int64(rid)
+	i.UIDStore = uidstore
+	i.StoreName = storename
+	i.UIDGoods = uidgoods
+	i.GoodsGroup = goodsgroup
+	i.GoodsName = goodsname
+	i.Art = art
+	i.Minbalance = minb
+	i.Maxbalance = maxb
+	i.Inuse = int64(inuse)
+	i.Abc = abc
 	c.JSON(http.StatusOK, i)
 }
 
@@ -378,8 +627,12 @@ func updateGoods(c *gin.Context) {
 }
 
 func fetchSingleGoods(c *gin.Context) {
-	goodsuid := c.Param("id")
-	gd, err := models.GetGoods(goodsuid)
+	goodsuid := c.DefaultQuery("uid", "")
+	q := c.DefaultQuery("q", "")
+	var gd *models.Goods
+	var err error
+	gd, err = models.GetGoods(goodsuid, q)
+
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": err.Error()})
 		return
@@ -388,7 +641,7 @@ func fetchSingleGoods(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "No goods found!"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "art": gd.Art, "name": gd.Name, "group": gd.Grp})
+	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "uid": gd.KeyGoods, "art": gd.Art, "name": gd.Name, "group": gd.Grp})
 }
 
 func getNeuroData(c *gin.Context) {
@@ -823,7 +1076,7 @@ func tablesPage(c *gin.Context) {
             { name: "uid", title:"УИД",type: "text", editing: false,visible: false,width: 150 },
             { name: "name", title:"Наименование",type: "text", width: 250 },
             { name: "tip", title:"Тип",type: "number", width: 50 },
-            { type: "control" }
+            { type: "control",deleteButton:false }
 		]`
 	case "goods":
 		fields = `[
@@ -831,31 +1084,33 @@ func tablesPage(c *gin.Context) {
             { name: "name", title:"Наименование",type: "text", width: 250 },
 			{ name: "groupname", title:"Группа",type: "text", width: 70 },
 			{ name: "art", title:"Тип",type: "text", width: 150 },
-            { type: "control" }
+            { type: "control",deleteButton:false }
 		]`
 	case "contracts":
 		fields = `[
             { name: "ROWID", title:"ИД",type: "text", editing: false,visible: false,width: 50 },
             { name: "provider", type: "text",editing: false,visible: false, width: 150 },
 			{ name: "recipient", type: "text", editing: false,visible: false, width: 150 },
+			{ name: "providername", title:"Поставщик",type: "text", width: 170 },
 			{ name: "recname", title:"Получатель",type: "text", width: 170 },
 			{ name: "chedord", title:"График заказов",type: "text", width: 100 },
-			{ name: "delivdays", title:"Дней доставки",type: "number", width: 100 },
-            { type: "control" }
+			{ name: "delivdays", title:"Дней доставки",type: "number", width: 30 },
+            { type: "control",deleteButton:false }
 		]`
 	case "salesmatrix":
 		fields = `[
             { name: "ROWID", title:"ИД",type: "text", editing: false,visible: false,width: 50 },
-            { name: "uidStore", type: "text",editing: false,visible: false, width: 150 },
-			{ name: "name", title:"Склад",type: "text", editing: false, width: 150 },
-			{ name: "uidGoods", title:"uidТовара",editing: false,type: "text", width: 170 },
-			{ name: "Номенклатура", title:"Номенклатура",type: "text", width: 200 },
-			{ name: "art", title:"Артикул",type: "number", width: 100 },
-			{ name: "minbalance", title:"мин. остаток",type: "number", width: 50 },
+            { name: "uidStore", type: "text",editing: false,visible: false, width: 100 },
+			{ name: "storename", title:"Склад",type: "text", editing: false, width: 120 },
+			{ name: "uidGoods", title:"uidТовара",editing:false,visible:false,type:"text",width:100 },
+			{ name: "goodsgroup", title:"Группа",editing:false,visible:true,type:"text",width:60 },
+			{ name: "goodsname", title:"Номенклатура",editing: false,type: "text", width: 180 },
+			{ name: "art", title:"Артикул",editing: false,type: "text", width: 70 },
+			{ name: "minbalance", title:"Мин. остаток",type: "number", width: 50 },
 			{ name: "maxbalance", title:"Макс. остаток",type: "number", width: 50 },
-			{ name: "inuse", title:"В продаже",type: "select", width: 20 },
-			{ name: "abc", title:"ABC",type: "text", width: 20 },
-            { type: "control" }
+			{ name: "inuse", title:"Для продажи",type: "select", items: [{ Name:"",Id:-1},{ Name:"Нет",Id:0},{Name:"Да",Id:1}], valueField:"Id",textField:"Name",width:50 },
+			{ name: "abc", title:"ABC",type: "text", width: 30 },
+            { type: "control",deleteButton:false }
 		]`
 	case "contactgoods":
 		fields = `[
@@ -865,7 +1120,7 @@ func tablesPage(c *gin.Context) {
 			{ name: "name", title:"Номенклатура",type: "text", width: 170 },
 			{ name: "art", title:"Артикул",type: "text", width: 100 },
 			{ name: "providerArt", title:"Артикул поставщика",type: "text", width: 100 },
-            { type: "control" }
+            { type: "control",deleteButton:false }
 		]`
 
 	}
@@ -951,7 +1206,46 @@ func tablesPage(c *gin.Context) {
 	)
 }
 
-//стартовая страница
+//salesPage страница движений товаров
+func salesPage(c *gin.Context) {
+	hdata := make(map[string]interface{})
+	hdata["Page"] = "sales"
+	hdata["User"] = "DM"
+	hdata["Title"] = "Продажи"
+	uidstore := c.DefaultQuery("uidstores", "")
+	uidgoods := c.DefaultQuery("uidgoods", "")
+	period := c.DefaultQuery("period", "")
+	per1i, err := strconv.Atoi(period)
+	if err != nil {
+		per1i = 3
+	}
+	per2 := time.Now().Format("2006-01-02")
+	per1d := time.Now().AddDate(0, -per1i, 0)
+	per1 := time.Date(per1d.Year(), per1d.Month(), 1, 0, 0, 0, 0, time.Now().Location()).Format("2006-01-02")
+
+	datasel, err := models.GetSales(uidstore, uidgoods, per1, per2)
+	dataprof := "['дата','выручка','прибыль']"
+	datatab := "['дата','продано','остаток']"
+
+	for k, v := range datasel.Balance {
+		datatab = datatab + ",['" + time.Unix(int64(datasel.Udate[k])*86400, 0).Format("2006-01-02") + "'," + strconv.FormatFloat(datasel.Cnt[k], 'f', 0, 64) + "," + strconv.FormatFloat(v, 'f', 0, 64) + "]"
+		dataprof = dataprof + ",['" + time.Unix(int64(datasel.Udate[k])*86400, 0).Format("2006-01-02") + "'," + strconv.FormatFloat(datasel.Summa[k], 'f', 0, 64) + "," + strconv.FormatFloat(datasel.Margin[k]*datasel.Summa[k], 'f', 2, 64) + "]"
+	}
+
+	hdata["Datasale"] = template.JS(datatab)
+	hdata["Dataprofit"] = template.JS(dataprof)
+
+	c.HTML(
+		// Зададим HTTP статус 200 (OK)
+		http.StatusOK,
+		// Используем шаблон index.html
+		"sales",
+		// Передадим данные в шаблон
+		hdata,
+	)
+}
+
+//helpPage страница справочника
 func helpPage(c *gin.Context) {
 	// Вызовем метод HTML из Контекста Gin для обработки шаблона
 	// gin.H is a shortcut for map[string]interface{}
@@ -1016,6 +1310,7 @@ func main() {
 	router.GET("/config", confPage)
 	router.GET("/tables", tablesPage)
 	router.GET("/help", helpPage)
+	router.GET("/sales", salesPage)
 	api := router.Group("/api/")
 	{
 		api.GET("calc/", calculate)
@@ -1029,7 +1324,11 @@ func main() {
 		api.GET("contracts/", fetchAllContracts)
 		api.PUT("contracts/", updateContracts)
 
-		api.GET("goods/:id", fetchSingleGoods)
+		api.GET("salesmatrix/", fetchAllSalesmatrix)
+		api.PUT("salesmatrix/", updateSalesmatrix)
+		api.POST("setsalesmatrix/:store", setsalesmatrix)
+
+		api.GET("goods/", fetchSingleGoods)
 		api.POST("goods/", updateGoods)
 		api.GET("neuro/:store/:goods", getNeuroData)
 		api.GET("predict/:store/:goods", getPredict)
@@ -1037,7 +1336,6 @@ func main() {
 		api.POST("makeorders/", mkorders)
 		api.POST("recalcabc/:store", setABC)
 		api.GET("getorders/", getZakaz)
-		api.POST("setsalesmatrix/:store", setsalesmatrix)
 
 		//api.DELETE("goods/:id", DeleteProduct)
 	}

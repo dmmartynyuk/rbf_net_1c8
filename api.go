@@ -101,7 +101,7 @@ func calcnet(kStore string, kGoods string) (retNext int, retDemand float64) {
 			if cnt == 0 {
 				continue
 			}
-			gt, err := models.GetGoods(merch.KeyGoods)
+			gt, err := models.GetGoods(merch.KeyGoods, "")
 			if err != nil {
 				models.DbLog("calc. Ошибка чтения товара "+merch.KeyGoods+" "+err.Error(), "calculate", time.Now().UTC().UnixNano())
 				return

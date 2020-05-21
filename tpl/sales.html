@@ -1,0 +1,234 @@
+{{template "base" .}}
+{{define "title"}}Продажи{{end}}
+{{define "pagestyle"}}
+<style type="text/css">
+</style>
+{{end}}
+{{define "content"}}
+<div class="container-fluid">
+	<div class="row">
+        <nav class="col-md-2 d-none d-md-block bg-light sidebar">
+          <div class="sidebar-sticky">
+            <ul class="nav flex-column">
+              <li class="nav-item">
+                <a id="stores" class="nav-link d-flex active"  href="/sales?tab=stores" data-sel="none"><i class="zmdi zmdi-account"></i><span class="col-md-12">Склады</span><i class="tabnav"></i></a>
+              </li>
+              <li class="nav-item ">
+                <a id="goods" class="nav-link d-flex"  href="/sales?tab=goods" data-sel="none"><i class="zmdi zmdi-account"></i><span class="col-md-12">Номенклатура</span><i class="tabnav"></i></a>
+              </li>
+              <li class="nav-item">
+                <a id="contract" class="nav-link d-flex"  href="/sales?tab=contracts" data-sel="none"><i class="zmdi zmdi-account"></i><span class="col-md-12">Контракты</span><i class="tabnav"></i></a>
+              </li>
+              <li class="nav-item">
+                <a id="matrix" class="nav-link d-flex"  href="/sales?tab=salesmatrix" data-sel="none"><i class="zmdi zmdi-account"></i><span class="col-md-12">Матрица товаров</span><i class="tabnav"></i></a>
+              </li>
+            </ul>          
+          </div>
+        </nav>
+
+        <main role="main" class="col-md-9 ml-sm-auto col-lg-10 pt-3 px-4">
+		{{if .Error}}
+		<div class="alert alert-danger" role="alert">
+		{{.Error}}
+		</div>
+		{{end}}
+		
+		<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pb-2 mb-3 border-bottom">
+            <h1 class="h2">Продажи</h1>
+
+			<form style="width:90%;">
+				<div class="row">
+					<div class="col">
+						<div class="form-group">
+							<select class="form-control basicAutoSelect" id="uidstores" name="uidstores" placeholder="Склад..."
+								data-url="/api/stores/" autocomplete="off"></select>
+						</div>
+					</div>	
+					<div class="col">
+						<div class="form-group">
+							<select class="form-control basicAutoSelect" id="uidgoods" name="uidgoods" placeholder="Номенклатура..."
+								data-url="/api/goods/" autocomplete="off"></select>
+						</div>
+					</div>
+					<div class="col">
+						<div class="btn-toolbar mb-2 mb-md-0">
+						  <div class="btn-group mr-2">
+							<button class="btn btn-sm btn-outline-secondary dropdown-toggle" id="btnperiod"  data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+							<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-calendar"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+							Этот год
+							</button>
+							<div class="dropdown-menu" aria-labelledby="btnperiod">
+								<a class="dropdown-item" href="#">Квартал</a>
+								<a class="dropdown-item" href="#">Полугодие</a>
+								<a class="dropdown-item" href="#">9 мес</a>
+								<a class="dropdown-item" href="#">Год</a>
+								<a class="dropdown-item" href="#">Три года</a>
+							</div>
+						  </div>
+						</div>
+					</div>
+				</div>	
+			</form>
+	
+        </div>
+        <div id="tab_divcons"></div>
+		  <div id="chrts_div" style="height:450px;"></div>
+          <div id="tab_div"></div>
+		  <div id="prof_chart" style="height:300px;"></div>
+        </main>
+     </div>  
+</div>
+{{end}}
+{{define "jscript"}}
+<script src="/assets/js/bootstrap-autocomplete.min.js"></script>
+<script type="text/javascript">
+var gsale ={
+    datachart: [ {{.Datasale}} ],
+	gdatac:null,
+    options : {
+        title: 'Продажи и остатки',
+		curveType: 'function',
+		isStacked: 'absolute',
+        legend: { position: 'right' }
+	}
+}
+var gprofit ={
+    dataprofit: [ {{.Dataprofit}} ],
+    options : {
+        title: 'прибыль',
+		curveType: 'function',
+		isStacked: 'absolute',
+        legend: { position: 'right' }
+	}
+}
+	google.charts.load('current', {'packages':['corechart','table']});
+    google.charts.setOnLoadCallback(drawSaleChart);
+    google.charts.setOnLoadCallback(drawProfit);
+
+	
+    function drawSaleChart() {
+        gsale.gdatac = google.visualization.arrayToDataTable(gsale.datachart);
+        //gsale.chartcost = new google.visualization.ColumnChart(document.getElementById('chrts_div'));
+        gsale.chartcost = new google.visualization.ColumnChart(document.getElementById('chrts_div'));
+        gsale.chartcost.draw(gsale.gdatac, gsale.options);
+        //drawTableSale();
+
+    }
+    function drawTableSale() {
+        //var data = new google.visualization.DataTable();
+        var data = google.visualization.arrayToDataTable(gsale.datachart);
+	      //data.addColumn('string', 'период');
+        var table = new google.visualization.Table(document.getElementById('tab_div'));
+        table.draw(data, {allowHtml: true, showRowNumber: true, width: '100%', height: '100%'});
+    }  
+    function drawProfit() {
+      gprofit.gdatap = google.visualization.arrayToDataTable(gprofit.dataprofit);
+      gprofit.chartprof = new google.visualization.ColumnChart(document.getElementById('prof_chart')); //ColumnChart
+      gprofit.chartprof.draw(gprofit.gdatap, gprofit.options);
+      drawTableProfit();
+    }
+    function drawTableProfit() {
+      var data = google.visualization.arrayToDataTable(gprofit.dataprofit);
+      var table = new google.visualization.Table(document.getElementById('tab_divprof'));
+      table.draw(data, {allowHtml: true, showRowNumber: true, width: '100%', height: '100%'});
+    } 
+function exportToCSV(typ) {
+    var obj;
+    var fn="{{.Tabname}}.csv";
+	obj=gtab.datachart;
+    if (!obj.length) {
+		return;
+	}
+    var csvContent = "data:text/csv;charset=utf-8,";
+    // headers
+	for (i=0;i<obj.length;i++){
+		comma="";
+        for(r=0;r<obj[i].length;r++){
+			csvContent =csvContent+comma+obj[i][r];
+            comma=";";
+        } 
+        csvContent +="\n";
+	} 
+    csvContent +="\n";
+    var encodedUri = encodeURI(csvContent);
+    var link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", fn);
+    document.body.appendChild(link); // Required for FF
+	link.click();
+    document.body.removeChild(link); 
+}
+function getAllUrlParams(url) {
+      // get query string from url (optional) or window
+      var queryString = url ? url.split('?')[1] : window.location.search.slice(1);
+      // we'll store the parameters here
+      var obj = {};
+      // if query string exists
+      if (queryString) {
+        // stuff after # is not part of query string, so get rid of it
+        queryString = queryString.split('#')[0];
+        // split our query string into its component parts
+        var arr = queryString.split('&');
+        for (var i = 0; i < arr.length; i++) {
+          // separate the keys and the values
+          var a = arr[i].split('=');
+          // set parameter name and value (use 'true' if empty)
+          var paramName = a[0];
+          var paramValue = typeof (a[1]) === 'undefined' ? true : a[1];
+          // (optional) keep case consistent
+          paramName = paramName.toLowerCase();
+          if (typeof paramValue === 'string') paramValue = paramValue.toLowerCase();
+          // if the paramName ends with square brackets, e.g. colors[] or colors[2]
+          if (paramName.match(/\[(\d+)?\]$/)) {
+            // create key if it doesn't exist
+            var key = paramName.replace(/\[(\d+)?\]/, '');
+            if (!obj[key]){ obj[key] = [];}
+            // if it's an indexed array e.g. colors[2]
+            if (paramName.match(/\[\d+\]$/)) {
+              // get the index value and add the entry at the appropriate position
+              var index = /\[(\d+)\]/.exec(paramName)[1];
+              obj[key][index] = paramValue;
+            } else {
+              // otherwise add the value to the end of the array
+              obj[key].push(paramValue);
+            }
+          } else {
+            // we're dealing with a string
+            if (!obj[paramName]) {
+              // if it doesn't exist, create property
+              obj[paramName] = paramValue;
+            } else if (obj[paramName] && typeof obj[paramName] === 'string'){
+              // if property does exist and it's a string, convert it to an array
+              obj[paramName] = [obj[paramName]];
+              obj[paramName].push(paramValue);
+            } else {
+              // otherwise add the property
+               obj[paramName].push(paramValue);
+            }
+          }
+        }
+      }
+      return obj;
+}
+$(function() {
+	$("#uidstores").autoComplete({
+		events: {
+			searchPost: function (resultFromServer) {
+				var ret=new Array();
+				$.each(resultFromServer.data,function( index, value ){ret.push( {value:this.uid,text:this.name});});
+				return ret;
+			}
+		}
+	});
+	$("#uidgoods").autoComplete({
+		events: {
+			searchPost: function (resultFromServer) {
+				var ret=new Array();
+				$.each(resultFromServer,function( index, value ){ret.push( {value:this.uid,text:this.name});});
+				return ret;
+			}
+		}
+	});
+});
+</script>
+{{end}}
