@@ -629,19 +629,32 @@ func updateGoods(c *gin.Context) {
 func fetchSingleGoods(c *gin.Context) {
 	goodsuid := c.DefaultQuery("uid", "")
 	q := c.DefaultQuery("q", "")
-	var gd *models.Goods
-	var err error
-	gd, err = models.GetGoods(goodsuid, q)
 
+	if len(goodsuid) > 0 {
+		gd, err := models.GetGood(goodsuid)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": err.Error()})
+			return
+		}
+		gds := make([]models.Goods, 1)
+		gds[0] = *gd
+		c.JSON(http.StatusOK, gin.H{"data": gds, "itemsCount": 1})
+		//c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "uid": gd.KeyGoods, "art": gd.Art, "name": gd.Name, "group": gd.Grp})
+		return
+	}
+
+	if len(q) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "нет запроса"})
+		return
+
+	}
+	gds, err := models.GetGoods(q)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": err.Error()})
 		return
 	}
-	if len(gd.Art) == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "No goods found!"})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "uid": gd.KeyGoods, "art": gd.Art, "name": gd.Name, "group": gd.Grp})
+
+	c.JSON(http.StatusOK, gin.H{"data": gds, "itemsCount": len(gds)})
 }
 
 func getNeuroData(c *gin.Context) {
@@ -1215,6 +1228,11 @@ func salesPage(c *gin.Context) {
 	uidstore := c.DefaultQuery("uidstores", "")
 	uidgoods := c.DefaultQuery("uidgoods", "")
 	period := c.DefaultQuery("period", "")
+	hdata["Uidstores"] = uidstore
+	hdata["Uidgoods"] = uidgoods
+	hdata["Period"] = period
+	hdata["Uidstores_text"] = c.DefaultQuery("uidstores_text", "")
+	hdata["Uidgoods_text"] = c.DefaultQuery("uidgoods_text", "")
 	per1i, err := strconv.Atoi(period)
 	if err != nil {
 		per1i = 3
@@ -1223,13 +1241,28 @@ func salesPage(c *gin.Context) {
 	per1d := time.Now().AddDate(0, -per1i, 0)
 	per1 := time.Date(per1d.Year(), per1d.Month(), 1, 0, 0, 0, 0, time.Now().Location()).Format("2006-01-02")
 
-	datasel, err := models.GetSales(uidstore, uidgoods, per1, per2)
+	_, _, hdata["Stores"], _ = models.GetTable("stores", 0, 0, "tip>=0")
+
+	hdata["SalesCounts"] = 0
+	hdata["SalesProfit"] = 0
+	hdata["SalesSumm"] = 0
 	dataprof := "['дата','выручка','прибыль']"
 	datatab := "['дата','продано','остаток']"
-
-	for k, v := range datasel.Balance {
-		datatab = datatab + ",['" + time.Unix(int64(datasel.Udate[k])*86400, 0).Format("2006-01-02") + "'," + strconv.FormatFloat(datasel.Cnt[k], 'f', 0, 64) + "," + strconv.FormatFloat(v, 'f', 0, 64) + "]"
-		dataprof = dataprof + ",['" + time.Unix(int64(datasel.Udate[k])*86400, 0).Format("2006-01-02") + "'," + strconv.FormatFloat(datasel.Summa[k], 'f', 0, 64) + "," + strconv.FormatFloat(datasel.Margin[k]*datasel.Summa[k], 'f', 2, 64) + "]"
+	if len(uidstore) > 0 && len(uidgoods) > 0 {
+		datasel, _ := models.GetSales(uidstore, uidgoods, per1, per2)
+		scnt := 0.0
+		ssum := 0.0
+		sprof := 0.0
+		for k, v := range datasel.Balance {
+			datatab = datatab + ",['" + time.Unix(int64(datasel.Udate[k])*86400, 0).Format("2006-01-02") + "'," + strconv.FormatFloat(datasel.Cnt[k], 'f', 0, 64) + "," + strconv.FormatFloat(v, 'f', 0, 64) + "]"
+			dataprof = dataprof + ",['" + time.Unix(int64(datasel.Udate[k])*86400, 0).Format("2006-01-02") + "'," + strconv.FormatFloat(datasel.Summa[k], 'f', 0, 64) + "," + strconv.FormatFloat(datasel.Margin[k]*datasel.Summa[k], 'f', 2, 64) + "]"
+			scnt = scnt + datasel.Cnt[k]
+			sprof = sprof + datasel.Margin[k]*datasel.Summa[k]
+			ssum = ssum + datasel.Summa[k]
+		}
+		hdata["SalesCounts"] = strconv.FormatFloat(scnt, 'f', 2, 64)
+		hdata["SalesProfit"] = strconv.FormatFloat(sprof, 'f', 2, 64)
+		hdata["SalesSumm"] = strconv.FormatFloat(ssum, 'f', 2, 64)
 	}
 
 	hdata["Datasale"] = template.JS(datatab)
@@ -1330,6 +1363,7 @@ func main() {
 
 		api.GET("goods/", fetchSingleGoods)
 		api.POST("goods/", updateGoods)
+
 		api.GET("neuro/:store/:goods", getNeuroData)
 		api.GET("predict/:store/:goods", getPredict)
 		api.POST("setsales/", setSales)

@@ -59,13 +59,8 @@
 	  <li class="nav-item{{setActive .Page "orders" }}">
         <a class="nav-link" href="/orders">Заказы поставщикам{{if eq .Page "orders"}}<span class="sr-only">(current)</span>{{end}}</a>
       </li>
-      <li class="nav-item dropdown{{setActive .Page "dropdown" }}">
-        <a class="nav-link dropdown-toggle" href="#" id="dropdown01" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">Движения</a>
-        <div class="dropdown-menu" aria-labelledby="dropdown01">
-          <a class="dropdown-item" href="#">По магазинам</a>
-          <a class="dropdown-item" href="#">Another action</a>
-          <a class="dropdown-item" href="#">Something else here</a>
-        </div>
+      <li class="nav-item dropdown{{setActive .Page "sales" }}">
+        <a class="nav-link" href="/sales" >Движения{{if eq .Page "sales"}}<span class="sr-only">(current)</span>{{end}}</a>
       </li>
 	  <li class="nav-item{{setActive .Page "help" }}">
         <a class="nav-link" href="/help">Помощь{{if eq .Page "help"}}<span class="sr-only">(current)</span>{{end}}</a>

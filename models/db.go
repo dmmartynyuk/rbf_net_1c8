@@ -314,13 +314,16 @@ func GetTable(tname string, page int, gate int, cond string) (int, string, []map
 	var recs string
 	var rcount int
 	limit := " limit " + strconv.Itoa(gate*page) + "," + strconv.Itoa(gate)
+	if gate == 0 {
+		limit = ""
+	}
 	var where string
 	if len(cond) > 0 {
 		where = " where " + cond
 	}
 	switch tname {
 	case "stores":
-		s = "select uid, name, tip from stores" + where + limit + ";"
+		s = "select uid, name, tip from stores" + where + " order by name " + limit + ";"
 		recs = "select count(*) from stores " + where + ";"
 	case "goods":
 		s = "select uid, name,groupname, art from goods" + where + " order by groupname, art " + limit + ";"
@@ -443,7 +446,7 @@ func InsertTableData(tabname string, matr []map[string]interface{}, keydel map[s
 			case float32:
 				valstr = strconv.FormatFloat(float64(v.(float64)), 'f', -1, 64)
 			case time.Time:
-				valstr = (v.(time.Time)).Format("2006-01-02T15:04:05")
+				valstr = "'" + (v.(time.Time)).Format("2006-01-02T15:04:05") + "'"
 			case bool:
 				if (v.(bool)) == true {
 					valstr = "true"
@@ -451,7 +454,7 @@ func InsertTableData(tabname string, matr []map[string]interface{}, keydel map[s
 					valstr = "false"
 				}
 			case string:
-				valstr = Escape(v.(string))
+				valstr = "'" + Escape(v.(string)) + "'"
 			}
 			val = val + comma + valstr
 			if ok {
@@ -808,16 +811,10 @@ func GetContracts(r ...string) ([]Contract, error) {
 
 }
 
-//GetGoods возвращает срез мапов из таблицы товаров.
-func GetGoods(guid string, q string) (*Goods, error) {
+//GetGood возвращает срез мапов из таблицы товаров.
+func GetGood(guid string) (*Goods, error) {
 	st := new(Goods)
-	var rows *sql.Rows
-	var err error
-	if len(q) > 0 {
-		rows, err = DB.Query("select uid, groupname, name, art from goods where art like $1 or name like $1;", q)
-	} else {
-		rows, err = DB.Query("select uid, groupname, name, art from goods where uid =$1;", guid)
-	}
+	rows, err := DB.Query("select uid, groupname, name, art from goods where uid =$1;", guid)
 	if err != nil {
 		return st, err
 		//log.Panic(err)
@@ -830,6 +827,43 @@ func GetGoods(guid string, q string) (*Goods, error) {
 		}
 	}
 	return st, nil
+
+}
+
+//GetGoods возвращает срез мапов из таблицы товаров.
+func GetGoods(q string) ([]Goods, error) {
+	var st Goods
+	var gds = make([]Goods, 0)
+	if len(q) == 0 {
+		return gds, nil
+	}
+	rows, err := DB.Query("select uid, groupname, name, art from goods where art like $1;", q+"%")
+	if err != nil {
+		return gds, err
+		//log.Panic(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		err := rows.Scan(&st.KeyGoods, &st.Grp, &st.Name, &st.Art)
+		if err != nil {
+			return gds, err
+		}
+		gds = append(gds, st)
+	}
+	if len(gds) > 0 {
+		return gds, nil
+	}
+	//не нашли по артиклу,ищем по наименованию
+	rows.Close()
+	rows, err = DB.Query("select uid, groupname, name, art from goods where name like $1;", "%"+q+"%")
+	for rows.Next() {
+		err := rows.Scan(&st.KeyGoods, &st.Grp, &st.Name, &st.Art)
+		if err != nil {
+			return gds, err
+		}
+		gds = append(gds, st)
+	}
+	return gds, nil
 
 }
 

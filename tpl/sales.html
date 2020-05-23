@@ -11,16 +11,7 @@
           <div class="sidebar-sticky">
             <ul class="nav flex-column">
               <li class="nav-item">
-                <a id="stores" class="nav-link d-flex active"  href="/sales?tab=stores" data-sel="none"><i class="zmdi zmdi-account"></i><span class="col-md-12">Склады</span><i class="tabnav"></i></a>
-              </li>
-              <li class="nav-item ">
-                <a id="goods" class="nav-link d-flex"  href="/sales?tab=goods" data-sel="none"><i class="zmdi zmdi-account"></i><span class="col-md-12">Номенклатура</span><i class="tabnav"></i></a>
-              </li>
-              <li class="nav-item">
-                <a id="contract" class="nav-link d-flex"  href="/sales?tab=contracts" data-sel="none"><i class="zmdi zmdi-account"></i><span class="col-md-12">Контракты</span><i class="tabnav"></i></a>
-              </li>
-              <li class="nav-item">
-                <a id="matrix" class="nav-link d-flex"  href="/sales?tab=salesmatrix" data-sel="none"><i class="zmdi zmdi-account"></i><span class="col-md-12">Матрица товаров</span><i class="tabnav"></i></a>
+                <a id="stores" class="nav-link d-flex active"  href="#" data-sel="none"><i class="zmdi zmdi-account"></i><span class="col-md-12">Продажи</span><i class="tabnav"></i></a>
               </li>
             </ul>          
           </div>
@@ -32,49 +23,73 @@
 		{{.Error}}
 		</div>
 		{{end}}
-		
+		<h1 class="h2">Продажи</h1>
 		<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pb-2 mb-3 border-bottom">
-            <h1 class="h2">Продажи</h1>
-
-			<form style="width:90%;">
+            
+			<form style="width:90%;" action="/sales" method="get">
 				<div class="row">
-					<div class="col">
+					<div class="col-md-3">
 						<div class="form-group">
-							<select class="form-control basicAutoSelect" id="uidstores" name="uidstores" placeholder="Склад..."
-								data-url="/api/stores/" autocomplete="off"></select>
+							<input type="hidden" name="uidstores_text" id="uidstores_text" value="{{.Uidstores_text}}"/>
+							<select class="form-control basicAutoSelect" id="uidstores" name="uidstores" placeholder="Склад...">
+							<option value="0" {{if eq .Uidstores ""}}selected{{end}}>Выбирете склад...</option>
+		{{range $index, $el := .Stores}}
+		{{$uid:=index $el 0}}
+		{{if gt $index 0}}
+		<option value="{{$uid}}" {{if eq $.Uidstores $uid}}selected{{end}}>{{index $el 1}}</option>	
+		{{end}}
+		{{end}}
+							</select>
+							
 						</div>
 					</div>	
-					<div class="col">
+					<div class="col-md-6">
 						<div class="form-group">
+							<div class="input-group-append">
 							<select class="form-control basicAutoSelect" id="uidgoods" name="uidgoods" placeholder="Номенклатура..."
 								data-url="/api/goods/" autocomplete="off"></select>
+							
+							<div class="input-group-text" style="cursor:pointer" id="clearGoods">X</div>
+							</div>
 						</div>
 					</div>
-					<div class="col">
-						<div class="btn-toolbar mb-2 mb-md-0">
-						  <div class="btn-group mr-2">
-							<button class="btn btn-sm btn-outline-secondary dropdown-toggle" id="btnperiod"  data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-							<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-calendar"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-							Этот год
-							</button>
-							<div class="dropdown-menu" aria-labelledby="btnperiod">
-								<a class="dropdown-item" href="#">Квартал</a>
-								<a class="dropdown-item" href="#">Полугодие</a>
-								<a class="dropdown-item" href="#">9 мес</a>
-								<a class="dropdown-item" href="#">Год</a>
-								<a class="dropdown-item" href="#">Три года</a>
-							</div>
-						  </div>
+					<div class="col-md-2">
+						<div class="form-group">
+							<select class="form-control basicAutoSelect" id="period" name="period" value="{{.Period}}">
+								<option value="1" {{if eq .Period "1"}}selected{{end}}>Месяц</option>
+							  <option value="3" {{if eq .Period "3"}}selected{{end}}>Квартал</option>
+							  <option value="6" {{if eq .Period "6"}}selected{{end}}>Полугодие</option>
+							  <option value="9" {{if eq .Period "9"}}selected{{end}}>9 мес</option>
+							  <option value="12" {{if eq .Period "12"}}selected{{end}}>Год</option>
+							  <option value="36" {{if eq .Period "36"}}selected{{end}}>Три года</option>>
+							</select>
 						</div>
+					</div>
+					<div class="col-md-1">
+					<button class="btn btn-light" type="submit">
+					<svg fill="#000000" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50" width="30px" height="30px"><path d="M 21 3 C 11.621094 3 4 10.621094 4 20 C 4 29.378906 11.621094 37 21 37 C 24.710938 37 28.140625 35.804688 30.9375 33.78125 L 44.09375 46.90625 L 46.90625 44.09375 L 33.90625 31.0625 C 36.460938 28.085938 38 24.222656 38 20 C 38 10.621094 30.378906 3 21 3 Z M 21 5 C 29.296875 5 36 11.703125 36 20 C 36 28.296875 29.296875 35 21 35 C 12.703125 35 6 28.296875 6 20 C 6 11.703125 12.703125 5 21 5 Z"/></svg>
+					</button>
 					</div>
 				</div>	
 			</form>
 	
         </div>
         <div id="tab_divcons"></div>
-		  <div id="chrts_div" style="height:450px;"></div>
-          <div id="tab_div"></div>
-		  <div id="prof_chart" style="height:300px;"></div>
+		<div id="chrts_div" style="height:450px;"></div>
+		<p>  
+		<blockquote class="blockquote">
+		<p class="mb-0">Всего продано за период: {{.SalesCounts}} шт.</p>
+		<footer class="blockquote-footer">{{.Uidgoods_text}} по складу <cite title="{{.SalesCounts}}">{{.Uidstores_text}}</cite></footer>
+		</blockquote>
+		</p>  
+        <div id="tab_div"></div>
+		<div id="prof_chart" style="height:300px;"></div>
+		<p>  
+		<blockquote class="blockquote">
+		<p class="mb-0">Выручка за период: {{.SalesSumm}} руб.</p>
+		<footer class="blockquote-footer">Прибыль от продажи за период составила <cite title="{{.SalesCounts}}">{{.SalesProfit}} руб.</cite></footer>
+		</blockquote>
+		</p>
         </main>
      </div>  
 </div>
@@ -210,25 +225,26 @@ function getAllUrlParams(url) {
       }
       return obj;
 }
-$(function() {
-	$("#uidstores").autoComplete({
-		events: {
-			searchPost: function (resultFromServer) {
-				var ret=new Array();
-				$.each(resultFromServer.data,function( index, value ){ret.push( {value:this.uid,text:this.name});});
-				return ret;
-			}
-		}
-	});
+$(document).ready(function(){
 	$("#uidgoods").autoComplete({
 		events: {
 			searchPost: function (resultFromServer) {
 				var ret=new Array();
-				$.each(resultFromServer,function( index, value ){ret.push( {value:this.uid,text:this.name});});
+				$.each(resultFromServer.data,function( index, value ){ret.push( {value:this.KeyGoods,text:this.Name});});
 				return ret;
 			}
 		}
 	});
+	{{if .Uidstores}}
+	$("#uidgoods").autoComplete('set', { value: "{{.Uidgoods}}", text: "{{.Uidgoods_text}}"});
+	{{end}}
+	$("#clearGoods").on("click",function(){
+		$("#uidgoods").autoComplete('clear');
+	});
+	$("#uidstores").change(function(){
+        var selected = $(this).children("option:selected").text();
+        $("#uidstores_text").val(selected);
+    });
 });
 </script>
 {{end}}
