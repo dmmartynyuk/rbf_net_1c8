@@ -394,17 +394,19 @@ func apiMakeOrders() {
 		}
 		numzak++
 		var ordersnum string
+		//номер заказа два знака, всего 99 заказов в день
 		if numzak < 10 {
 			ordersnum = strconv.Itoa(now.YearDay()) + "0" + strconv.Itoa(numzak)
 		} else {
 			ordersnum = strconv.Itoa(now.YearDay()) + strconv.Itoa(numzak)
 		}
+		//читаем матрицу, заказы делаем только по матрице
 		goods, err := models.GetAllGoodsFromMatrix(uidstore, "")
 		if err != nil {
 			models.DbLog("makeOrders. Ошибка чтения  матрицы магазина "+namest+" "+err.Error(), "makeOrders", time.Now().UTC().UnixNano())
 			return
 		}
-		datedelivdays := now.AddDate(0, 0, delivdays).Format("2006-01-02")
+		datedelivdays := now.AddDate(0, 0, delivdays+1).Format("2006-01-02")
 		if delivdays < MINDAYSORD {
 			delivdays = MINDAYSORD
 		}
@@ -442,12 +444,19 @@ func apiMakeOrders() {
 			//надо заказать для склада
 			cntzak := float64(delivdays) * merch.PredDemand
 			//смотрим текущий остаток и минимальный остаток склада
-			cntzak = cntzak - (merch.Balance - (merch.MinBalance + merch.Vitrina))
-			if cntzak+merch.Balance > merch.MaxBalance {
+			//cntzak = cntzak - (merch.Balance - (merch.MinBalance + merch.Vitrina))
+			//if cntzak+merch.Balance > merch.MaxBalance {
+			//	cntzak = merch.MaxBalance - merch.Balance
+			//}
+			cntzak = cntzak - (merch.Balance - merch.Vitrina)
+			if cntzak > 0.0 && cntzak < merch.MinBalance {
+				cntzak = merch.MinBalance
+			}
+			if cntzak > 0.0 && cntzak+merch.Balance > merch.MaxBalance && merch.MaxBalance > 0 {
 				cntzak = merch.MaxBalance - merch.Balance
 			}
 			//надо заказывать кратно step
-			if merch.Step > 1 {
+			if cntzak > 0.0 && merch.Step > 1 {
 				cntzak = float64(int(merch.Step) * int(cntzak/merch.Step+0.9999))
 			}
 
