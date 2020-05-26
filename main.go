@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/xml"
 	"flag"
+	"strings"
 
 	"net/http"
 	"sort"
@@ -1278,6 +1279,170 @@ func salesPage(c *gin.Context) {
 	)
 }
 
+//predictPage страница прогноза товаров
+func predictPage(c *gin.Context) {
+	type graph struct {
+		Period      string
+		Cnt         float64
+		Balance     float64
+		Sum         float64
+		Prof        float64
+		Margin      float64
+		Prevdays    float64
+		BalancePred float64
+		CntPred     float64
+		SumPred     float64
+		ProfPred    float64
+		Demand      float64
+	}
+
+	GraphPeriods := make(map[string]graph)
+	hdata := make(map[string]interface{})
+	hdata["Page"] = "sales"
+	hdata["User"] = "DM"
+	hdata["Title"] = "Продажи"
+	uidstore := c.DefaultQuery("uidstores", "")
+	uidgoods := c.DefaultQuery("uidgoods", "")
+	period := c.DefaultQuery("period", "")
+	hdata["Uidstores"] = uidstore
+	hdata["Uidgoods"] = uidgoods
+	hdata["Period"] = period
+	hdata["Uidstorestext"] = c.DefaultQuery("uidstores_text", "")
+	goodstext := c.DefaultQuery("uidgoods_text", "")
+	hdata["Uidgoodstext"] = goodstext
+	per1i, err := strconv.Atoi(period)
+	if err != nil {
+		per1i = 3
+	}
+	per2 := time.Now().Format("2006-01-02")
+	per1d := time.Now().AddDate(0, -per1i, 0)
+	per1date := time.Date(per1d.Year(), per1d.Month(), 1, 0, 0, 0, 0, time.Now().Location())
+	per1 := per1date.Format("2006-01-02")
+
+	_, _, hdata["Stores"], _ = models.GetTable("stores", 0, 0, "tip>=0")
+
+	hdata["SalesCounts"] = 0
+	hdata["SalesProfit"] = 0
+	hdata["SalesSumm"] = 0
+	mx := make([]string, 7, 7)
+	hdata["Matrix"] = mx
+	dataprof := "['дата','выручка','прибыль']"
+	datatab := "['дата','продано','остаток','прогноз остатка']"
+	if len(uidstore) > 0 && len(uidgoods) > 0 {
+		cond := "uidStore='" + models.Escape(uidstore) + "' and uidGoods='" + models.Escape(uidgoods) + "'"
+		//s.ROWID,s.uidStore,st.name as storename,s.uidGoods as uidGoods,g.groupname as groupname, g.name as goodsname, g.Art as art,s.minbalance as minbalance,s.maxbalance as maxbalance,s.inuse as inuse,s.abc as abc
+		k, _, matrix, err := models.GetTable("salesmatrix", 0, 0, cond)
+		if err != nil {
+			mx[6] = err.Error()
+		}
+		if k > 0 {
+			mx[0] = strconv.FormatFloat(matrix[1][7].(float64), 'f', 2, 64)  //minbalance
+			mx[1] = strconv.FormatFloat(matrix[1][8].(float64), 'f', 2, 64)  //maxbalance
+			mx[2] = strconv.FormatInt(matrix[1][11].(int64), 10)             //step
+			mx[3] = strconv.FormatInt(matrix[1][9].(int64), 10)              //inuse
+			mx[4] = strings.ToUpper(matrix[1][10].(string))                  //abc
+			mx[5] = strconv.FormatFloat(matrix[1][12].(float64), 'f', 4, 64) //demand
+		} else {
+			mx[6] = "В базе нет записи для " + goodstext
+		}
+		hdata["Matrix"] = mx
+
+		datasel, _ := models.GetSales(uidstore, uidgoods, per1, per2, "SM")
+		datapredict, _ := models.GetPredict(uidstore, uidgoods, per1, per2)
+		scnt := 0.0
+		ssum := 0.0
+		sprof := 0.0
+		for k, v := range datasel.Balance {
+			gr := graph{}
+			gr.Period = time.Unix(int64(datasel.Udate[k])*86400, 0).Format("2006-01-02")
+			gr.Cnt = datasel.Cnt[k]
+			gr.Balance = v
+			gr.Margin = datasel.Margin[k]
+			gr.Sum = datasel.Summa[k]
+			gr.Prof = datasel.Margin[k] * datasel.Summa[k]
+			gr.Prevdays = datasel.Prevdays[k]
+			GraphPeriods[gr.Period] = gr
+			dataprof = dataprof + ",['" + time.Unix(int64(datasel.Udate[k])*86400, 0).Format("2006-01-02") + "'," + strconv.FormatFloat(datasel.Summa[k], 'f', 0, 64) + "," + strconv.FormatFloat(datasel.Margin[k]*datasel.Summa[k], 'f', 2, 64) + "]"
+			scnt = scnt + datasel.Cnt[k]
+			sprof = sprof + datasel.Margin[k]*datasel.Summa[k]
+			ssum = ssum + datasel.Summa[k]
+		}
+		for _, v := range datapredict {
+			gr := graph{}
+			gr, ok := GraphPeriods[v.Period]
+			if ok {
+				gr.Demand = v.Demand
+				GraphPeriods[v.Period] = gr
+			} else {
+				gr.Period = v.Period
+				gr.Demand = v.Demand
+				GraphPeriods[gr.Period] = gr
+			}
+		}
+
+		hdata["SalesCounts"] = strconv.FormatFloat(scnt, 'f', 2, 64)
+		hdata["SalesProfit"] = strconv.FormatFloat(sprof, 'f', 2, 64)
+		hdata["SalesSumm"] = strconv.FormatFloat(ssum, 'f', 2, 64)
+
+		var demand float64
+		var prevdays float64    //дней с пред покупки
+		var prevbalance float64 //пред остаток
+		var prevmargin float64
+		var prevprice float64
+		for per := per1date; per.Unix() < time.Now().Unix(); per = per.AddDate(0, 0, 1) {
+			perd := per.Format("2006-01-02")
+			gr, ok := GraphPeriods[perd]
+			if ok {
+				if demand > 0 {
+					gr.CntPred = prevdays * demand
+					gr.SumPred = prevprice * gr.CntPred
+					gr.ProfPred = prevmargin * gr.SumPred
+					gr.BalancePred = prevbalance - gr.CntPred
+				}
+				if gr.Prevdays > 0 { //данные от продаж
+					//gr.CntPred = gr.Prevdays * demand
+					if gr.Cnt > 0 && gr.Sum > 0 {
+						//	gr.SumPred = gr.Sum/gr.Cnt * gr.CntPred
+						prevprice = gr.Sum / gr.Cnt
+					}
+					//gr.SumPred = gr.Sum * gr.CntPred
+					//gr.ProfPred = gr.Margin * gr.SumPred
+					//gr.BalancePred = prevbalance - gr.CntPred
+					prevbalance = gr.Balance
+					if gr.Margin > 0 {
+						prevmargin = gr.Margin
+					}
+					prevdays = 0
+				} else {
+					//данные только от предсказаний
+					gr.CntPred = prevdays * demand
+					gr.SumPred = prevprice * gr.CntPred
+					gr.ProfPred = prevmargin * gr.SumPred
+					gr.BalancePred = prevbalance - gr.CntPred
+				}
+				if gr.Demand > 0.0 {
+					demand = gr.Demand
+				}
+				prevdays++
+				datatab = datatab + ",['" + gr.Period + "'," + strconv.FormatFloat(gr.Cnt, 'f', 0, 64) + "," + strconv.FormatFloat(gr.Balance, 'f', 0, 64) + "," + strconv.FormatFloat(gr.BalancePred, 'f', 0, 64) + "]"
+			}
+		}
+		datatab = datatab + ",['" + time.Now().AddDate(0, 0, 7).Format("2006-01-02") + "',,," + strconv.FormatFloat(prevbalance-demand*7, 'f', 0, 64) + "]"
+	}
+
+	hdata["Datasale"] = template.JS(datatab)
+	hdata["Dataprofit"] = template.JS(dataprof)
+
+	c.HTML(
+		// Зададим HTTP статус 200 (OK)
+		http.StatusOK,
+		// Используем шаблон index.html
+		"sales",
+		// Передадим данные в шаблон
+		hdata,
+	)
+}
+
 //helpPage страница справочника
 func helpPage(c *gin.Context) {
 	// Вызовем метод HTML из Контекста Gin для обработки шаблона
@@ -1343,7 +1508,7 @@ func main() {
 	router.GET("/config", confPage)
 	router.GET("/tables", tablesPage)
 	router.GET("/help", helpPage)
-	router.GET("/sales", salesPage)
+	router.GET("/sales", predictPage)
 	api := router.Group("/api/")
 	{
 		api.GET("calc/", calculate)

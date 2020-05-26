@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	//импортируем драйвер sqlite3
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -337,7 +338,7 @@ func GetTable(tname string, page int, gate int, cond string) (int, string, []map
 		recs = "select count(c.ROWID) from contractgoods as c left join goods as s on c.uidgoods=s.uid" + where + ";"
 	case "salesmatrix":
 		//s = "select s.uidStore,st.name as Склад,s.uidGoods as uidТовара,g.name as Номенклатура, g.Art as артикул,s.minbalance as МинОстаток,s.maxbalance as МаксОстаток,s.cost,s.vitrina,s.midperiod,s.demand,s.price,s.margin,s.inuse as ВПродаже,s.abc from salesmatrix as s left join stores as st on s.uidStore=st.uid left join goods as g on s.uidGoods=g.uid" + where + limit + ";"
-		s = "select s.ROWID,s.uidStore,st.name as storename,s.uidGoods as uidGoods,g.groupname as groupname, g.name as goodsname, g.Art as art,s.minbalance as minbalance,s.maxbalance as maxbalance,s.inuse as inuse,s.abc as abc from salesmatrix as s left join stores as st on s.uidStore=st.uid left join goods as g on s.uidGoods=g.uid" + where + " order by st.name, g.groupname, g.art" + limit + ";"
+		s = "select s.ROWID,s.uidStore,st.name as storename,s.uidGoods as uidGoods,g.groupname as groupname, g.name as goodsname, g.Art as art,s.minbalance as minbalance,s.maxbalance as maxbalance,s.inuse as inuse,s.abc as abc, s.step as step, ifnull(s.demand,0.0)  from salesmatrix as s left join stores as st on s.uidStore=st.uid left join goods as g on s.uidGoods=g.uid" + where + " order by st.name, g.groupname, g.art" + limit + ";"
 		recs = "select count(s.ROWID) from salesmatrix as s left join stores as st on s.uidStore=st.uid left join goods as g on s.uidGoods=g.uid" + where + ";"
 	}
 	rows, err := DB.Query(recs)
@@ -880,9 +881,11 @@ func CreateGoods(g *Goods) (int64, error) {
 
 }
 
-//GetSales возвращает продажи из таблицы goodsmov
+//GetSales возвращает движения из таблицы goodsmov
 func GetSales(kStore string, kGoods string, p ...string) (*Sales, error) {
-	var p1, p2 string
+	var p1, p2, p3 string
+	tip := 0 //sale
+	p3 = "S" //only sale
 	switch len(p) {
 	case 0:
 		p1 = "2000-01-01"
@@ -890,9 +893,20 @@ func GetSales(kStore string, kGoods string, p ...string) (*Sales, error) {
 	case 1:
 		p1 = p[0]
 		p2 = "date('now')"
+	case 3:
+		p1 = p[0]
+		p2 = p[1]
+		p3 = p[2]
 	default:
 		p1 = p[0]
 		p2 = p[1]
+	}
+	if p3 == "M" {
+		tip = 1
+	} else {
+		if p3 == "SM" {
+			tip = -1
+		}
 	}
 	s := new(Sales)
 	s.KeyStore = kStore
@@ -910,8 +924,7 @@ func GetSales(kStore string, kGoods string, p ...string) (*Sales, error) {
 		if err != nil {
 			return s, err
 		}
-		//пишем только продажи
-		if gm.tipmov != 1 {
+		if tip == -1 || gm.tipmov == tip {
 			if gm.udate.Valid {
 				s.Udate = append(s.Udate, gm.udate.Float64)
 			} else {
@@ -1132,6 +1145,14 @@ func UpdateMatrix(m map[string]interface{}, w map[string]string) error {
 
 //ReplaceMatrix изменяет таблицу матрицы товаров
 func ReplaceMatrix(matr []map[string]interface{}, w map[string]string) error {
+	//пометим все как не в ассортименте
+	//как правило порции идут по складам, поэтому во всем срезе склад как у нулевого
+	uidstore := matr[0]["uidStore"].(string)
+	s := "UPDATE salesmatrix set inuse=0 where uidStore='" + Escape(uidstore) + "';"
+	_, err := DB.Exec(s)
+	if err != nil {
+		return err
+	}
 	return InsertTableData("salesmatrix", matr, w)
 	/*
 		itrans := 500
@@ -1301,6 +1322,49 @@ func GetLastPredict(uidstore string, uidgoods string) (pr *Predict, err error) {
 		}
 	}
 	return pr, nil
+}
+
+//GetPredict получает данные предсказаний количества покупок pred за days дней для магазина uidstore, товара uidgoods
+func GetPredict(uidstore string, uidgoods string, per1 string, per2 string) ([]Predict, error) {
+	pr := Predict{}
+	pr.KeyGoods = uidgoods
+	pr.KeyStore = uidstore
+	pr.Period = "1970-01-01"
+	pr.Days = 0
+	prm := make([]Predict, 0, 256)
+	if len(per1) == 0 {
+		per1 = "1970-01-01"
+	}
+	if len(per2) == 0 {
+		per2 = time.Now().Format("2006-01-02")
+	}
+	//CREATE UNIQUE INDEX storegoods ON neuro (uidStore, uidGoods)
+	rows, err := DB.Query("select period, cnt, days, demand from predict where uidStore=$1 and uidGoods=$2 and date(period)>date($3) and date(period)<=date($4) order by period DESC;", uidstore, uidgoods, per1, per2)
+	if err != nil {
+		return prm, err
+		//log.Panic(err)
+	}
+	defer rows.Close()
+	var nfcnt sql.NullFloat64
+	var nfdemand sql.NullFloat64
+	for rows.Next() {
+		err := rows.Scan(&pr.Period, &nfcnt, &pr.Days, &nfdemand)
+		if err != nil {
+			return prm, err
+		}
+		if nfcnt.Valid {
+			pr.Cnt = nfcnt.Float64
+		} else {
+			pr.Cnt = 0.0
+		}
+		if nfdemand.Valid {
+			pr.Demand = nfdemand.Float64
+		} else {
+			pr.Demand = 0.0
+		}
+		prm = append(prm, pr)
+	}
+	return prm, nil
 }
 
 //DbLog сохраняет лог в базу

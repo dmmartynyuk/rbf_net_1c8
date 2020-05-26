@@ -7,6 +7,7 @@
 {{define "content"}}
 <div class="container-fluid">
 	<div class="row">
+	<!--
         <nav class="col-md-2 d-none d-md-block bg-light sidebar">
           <div class="sidebar-sticky">
             <ul class="nav flex-column">
@@ -16,8 +17,8 @@
             </ul>          
           </div>
         </nav>
-
-        <main role="main" class="col-md-9 ml-sm-auto col-lg-10 pt-3 px-4">
+-->
+        <main role="main" class="col-md-12 ml-sm-auto col-lg-10 pt-3 px-4">
 		{{if .Error}}
 		<div class="alert alert-danger" role="alert">
 		{{.Error}}
@@ -30,7 +31,7 @@
 				<div class="row">
 					<div class="col-md-3">
 						<div class="form-group">
-							<input type="hidden" name="uidstores_text" id="uidstores_text" value="{{.Uidstores_text}}"/>
+							<input type="hidden" name="uidstores_text" id="uidstorestext" value="{{.Uidstorestext}}"/>
 							<select class="form-control basicAutoSelect" id="uidstores" name="uidstores" placeholder="Склад...">
 							<option value="0" {{if eq .Uidstores ""}}selected{{end}}>Выбирете склад...</option>
 		{{range $index, $el := .Stores}}
@@ -79,7 +80,7 @@
 		<p>  
 		<blockquote class="blockquote">
 		<p class="mb-0">Всего продано за период: {{.SalesCounts}} шт.</p>
-		<footer class="blockquote-footer">{{.Uidgoods_text}} по складу <cite title="{{.SalesCounts}}">{{.Uidstores_text}}</cite></footer>
+		<footer class="blockquote-footer">{{.Uidgoodstext}} по складу <cite title="{{.SalesCounts}}">{{.Uidstorestext}}</cite></footer>
 		</blockquote>
 		</p>  
         <div id="tab_div"></div>
@@ -90,6 +91,20 @@
 		<footer class="blockquote-footer">Прибыль от продажи за период составила <cite title="{{.SalesCounts}}">{{.SalesProfit}} руб.</cite></footer>
 		</blockquote>
 		</p>
+		<div class="alert alert-info" role="alert">
+		  <h4 class="alert-heading">Данные по {{.Uidgoodstext}} в матрице товаров</h4>
+		  <ul class="list-group">
+			  <li class="list-group-item">Минимальное количество: {{index .Matrix 0}}</li>
+			  <li class="list-group-item">Максимальное количество: {{index .Matrix 1}}</li>
+			  <li class="list-group-item">Кратность поставки: {{index .Matrix 2}}</li>
+			  {{$inuse:=index .Matrix 3}}
+			  <li class="list-group-item">В ассортименте: {{if eq $inuse "1"}}ДА{{end}}{{if eq $inuse "0"}}НЕТ{{end}}</li>
+			  <li class="list-group-item">ABC: {{index .Matrix 4}}</li>
+			  <li class="list-group-item">Потребность шт/день: {{index .Matrix 5}}</li>
+			</ul>
+		  <hr>
+		  <p class="mb-0">{{index .Matrix 6}}</p>
+		</div>
         </main>
      </div>  
 </div>
@@ -103,7 +118,7 @@ var gsale ={
     options : {
         title: 'Продажи и остатки',
 		curveType: 'function',
-		isStacked: 'absolute',
+		//isStacked: 'absolute',
         legend: { position: 'right' }
 	}
 }
@@ -123,7 +138,7 @@ var gprofit ={
 	
     function drawSaleChart() {
         gsale.gdatac = google.visualization.arrayToDataTable(gsale.datachart);
-        //gsale.chartcost = new google.visualization.ColumnChart(document.getElementById('chrts_div'));
+        //gsale.chartcost = new google.visualization.LineChart(document.getElementById('chrts_div'));
         gsale.chartcost = new google.visualization.ColumnChart(document.getElementById('chrts_div'));
         gsale.chartcost.draw(gsale.gdatac, gsale.options);
         //drawTableSale();
@@ -236,14 +251,14 @@ $(document).ready(function(){
 		}
 	});
 	{{if .Uidstores}}
-	$("#uidgoods").autoComplete('set', { value: "{{.Uidgoods}}", text: "{{.Uidgoods_text}}"});
+	$("#uidgoods").autoComplete('set', { value: "{{.Uidgoods}}", text: "{{.Uidgoodstext}}"});
 	{{end}}
 	$("#clearGoods").on("click",function(){
 		$("#uidgoods").autoComplete('clear');
 	});
 	$("#uidstores").change(function(){
         var selected = $(this).children("option:selected").text();
-        $("#uidstores_text").val(selected);
+        $("#uidstorestext").val(selected);
     });
 });
 </script>
