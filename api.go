@@ -431,6 +431,8 @@ func apiMakeOrders() {
 					return
 				}*/
 			//если товар заказан уже то не заказываем
+			//это условие проверим при записи в заказ
+			//если остаток меньше чем минимум в матрице то доставляем до минималки
 
 			//lper дата последней продажи товара
 			lper, err := time.Parse("2006-01-02T15:04:05", merch.PredPeriod)
@@ -460,9 +462,16 @@ func apiMakeOrders() {
 			//	cntzak = merch.MaxBalance - merch.Balance
 			//}
 			cntzak = cntzak - (merch.Balance - merch.Vitrina)
-			if cntzak > 0.0 && cntzak < merch.MinBalance {
-				cntzak = merch.MinBalance
+			if merch.MinBalance > 0 && merch.Balance < merch.MinBalance {
+				if cntzak < merch.MinBalance-merch.Balance {
+					cntzak = merch.MinBalance - merch.Balance
+				}
 			}
+			/*
+				if cntzak > 0.0 && cntzak < merch.MinBalance {
+					cntzak = merch.MinBalance
+				}
+			*/
 			if cntzak > 0.0 && cntzak+merch.Balance > merch.MaxBalance && merch.MaxBalance > 0 {
 				cntzak = merch.MaxBalance - merch.Balance
 			}
@@ -474,6 +483,14 @@ func apiMakeOrders() {
 			if cntzak > 0.0 && (int)(cntzak+0.5) > 0 {
 				models.SaveOper(ordersnum, provider, uidstore, merch.KeyGoods, now.Format("2006-01-02"), cntzak, next.Format("2006-01-02"), datedelivdays)
 			}
+			//обновим ср потребность в матрице
+			var m map[string]interface{}
+			m = map[string]interface{}{}
+			m["demand"] = merch.PredDemand
+			w := make(map[string]string)
+			w["uidStore"] = uidstore
+			w["uidGoods"] = merch.KeyGoods
+			models.UpdateMatrix(m, w)
 		}
 	}
 	models.DbLog("end makeOrders. Конец составления заказов", "makeOrders", time.Now().UTC().UnixNano())
