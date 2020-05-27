@@ -49,7 +49,7 @@ func calcnet(kStore string, kGoods string) (retNext int, retDemand float64) {
 
 	conf, err := models.GetConfig()
 	PROGPER = conf.ValInt("minday2sale", 7)
-	KC = conf.ValInt("kfnunvisible", 3)     //коэф сети
+	KC = conf.ValInt("kfnunvisible", 4)     //коэф сети, для редких продаж лучше болье
 	INF = conf.ValInt("inf", 30)            //удаленнность от последнего значения, см использование
 	MAXSALES = conf.ValInt("maxsales", 720) //глубина просмотра продаж для составления статистики
 	//contracts, err = models.GetContracts()
@@ -83,9 +83,10 @@ func calcnet(kStore string, kGoods string) (retNext int, retDemand float64) {
 
 			//надо ли пересчистать статистику?
 			recalc := false
-			if merch.PredDays > 0 && merch.PredDemand > (merch.PredCnt/float64(merch.PredDays))*50 {
+			if merch.PredDays > 0 && merch.PredDemand > (merch.PredCnt/float64(merch.PredDays))*20 {
 				//ошибка сети, пересчитаем
 				recalc = true
+				lkc++
 			}
 			//если прогноз делался не так давно, то возвращаем результаты последнего прогноза
 			lp, err := time.Parse("2006-01-02", merch.PredPeriod)
@@ -447,7 +448,7 @@ func apiMakeOrders() {
 			next := lper.AddDate(0, 0, merch.PredDays)
 			//надо ли пересчистать статистику?
 			recalc := false
-			if merch.PredDays > 0 && merch.PredDemand > (merch.PredCnt/float64(merch.PredDays))*50 {
+			if merch.PredDays > 0 && merch.PredDemand > (merch.PredCnt/float64(merch.PredDays))*20 {
 				//ошибка сети, пересчитаем
 				recalc = true
 			}

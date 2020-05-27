@@ -21,7 +21,7 @@ import (
 )
 
 //Version версия программы
-const Version = "0.2.1"
+const Version = "0.2.2"
 
 //Mcalc флаг работы функции calculate
 type Mcalc struct {
@@ -1018,6 +1018,7 @@ func startPage(c *gin.Context) {
 func confPage(c *gin.Context) {
 	hdata := make(map[string]interface{})
 	hdata["Page"] = "config"
+	hdata["Version"] = Version
 	var cfg = make(models.Config)
 
 	firmName, ok := c.GetQuery("firmName")
@@ -1069,6 +1070,7 @@ func confPage(c *gin.Context) {
 func tablesPage(c *gin.Context) {
 	hdata := make(map[string]interface{})
 	hdata["Page"] = "tables"
+	hdata["Version"] = Version
 	//var tables = make(map[string]interface{})
 
 	tabName := c.DefaultQuery("tab", "contracts")
@@ -1228,6 +1230,7 @@ func tablesPage(c *gin.Context) {
 func salesPage(c *gin.Context) {
 	hdata := make(map[string]interface{})
 	hdata["Page"] = "sales"
+	hdata["Version"] = Version
 	hdata["User"] = "DM"
 	hdata["Title"] = "Продажи"
 	uidstore := c.DefaultQuery("uidstores", "")
@@ -1447,12 +1450,43 @@ func predictPage(c *gin.Context) {
 	)
 }
 
+//orderProvPage страница заказов поставщикам
+func orderProvPage(c *gin.Context) {
+	hdata := make(map[string]interface{})
+	hdata["Page"] = "ordersprov"
+	hdata["Version"] = Version
+	hdata["User"] = "DM"
+	hdata["Title"] = "Заказы поставщикам"
+	provider := c.DefaultQuery("provider", "")
+	providertext := c.DefaultQuery("provider_text", "")
+	period := c.DefaultQuery("period", "")
+	//numdoc := c.DefaultQuery("numdoc", "")
+	hdata["Provider"] = provider
+	hdata["Providertext"] = providertext
+	hdata["Period"] = period
+
+	_, err := time.Parse("2006-01-02", period)
+	if err != nil {
+		hdata["Error"] = "Формат периода " + period + " не соответствует ожидаемому YYYY-MM-DD"
+	}
+
+	c.HTML(
+		// Зададим HTTP статус 200 (OK)
+		http.StatusOK,
+		// Используем шаблон index.html
+		"ordersprov",
+		// Передадим данные в шаблон
+		hdata,
+	)
+}
+
 //helpPage страница справочника
 func helpPage(c *gin.Context) {
 	// Вызовем метод HTML из Контекста Gin для обработки шаблона
 	// gin.H is a shortcut for map[string]interface{}
 	hdata := make(map[string]interface{})
 	hdata["Page"] = "help"
+	hdata["Version"] = Version
 	hdata["User"] = "DM"
 	hdata["Title"] = "Помощь"
 	c.HTML(
@@ -1513,6 +1547,7 @@ func main() {
 	router.GET("/tables", tablesPage)
 	router.GET("/help", helpPage)
 	router.GET("/sales", predictPage)
+	router.GET("/orders", orderProvPage)
 	api := router.Group("/api/")
 	{
 		api.GET("calc/", calculate)
