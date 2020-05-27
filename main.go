@@ -20,6 +20,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+//Version версия программы
+const Version = "0.2.1"
+
 //Mcalc флаг работы функции calculate
 type Mcalc struct {
 	mu sync.Mutex
@@ -975,6 +978,7 @@ func startPage(c *gin.Context) {
 	// gin.H is a shortcut for map[string]interface{}
 	hdata := make(map[string]interface{})
 	hdata["Page"] = "home"
+	hdata["Version"] = Version
 	hdata["User"] = "DM"
 	hdata["Title"] = "Главная"
 	conf, err := models.GetConfig()

@@ -1045,7 +1045,7 @@ func GetAllGoodsFromMatrix(kStore string, kGoods string) (mg []MatrixGoods, err 
 	//rows, err := DB.Query("select uidGoods, minbalance, maxbalance, abc, vitrina from salesmatrix where uidStore=$1;", kStore) // uidGoods='ea716efd-52f8-11e5-ad24-3085a9a9595a' and
 	var rows *sql.Rows
 	if len(kGoods) == 0 {
-		rows, err = DB.Query(`select s.uidGoods, s.minbalance, s.maxbalance, ifnull(s.abc,'C') as abc, s.vitrina, ifnull(zz.balance,0) as balance, ifnull(p.period,'1970-01-01') as predictper , ifnull(p.cnt,0) as predcnt, ifnull(p.days,0) as preddays, ifnull(p.demand,0) as preddemand, s.step from salesmatrix s LEFT JOIN 
+		rows, err = DB.Query(`select s.uidGoods, s.minbalance, s.maxbalance, ifnull(s.abc,'C') as abc, s.vitrina, ifnull(zz.balance,0.0) as balance, ifnull(p.period,'1970-01-01') as predictper , ifnull(p.cnt,0.0) as predcnt, ifnull(p.days,0) as preddays, ifnull(p.demand,0.0) as preddemand, s.step from salesmatrix s LEFT JOIN 
 	(select z.uidgoods as uidgoods, z.balance as balance, z.period from goodsmov as z join (select max(g.id) as id from goodsmov as g where g.uidStore=$1 group by g.uidStore, g.uidgoods) as a on a.id=z.id) as zz
 	on s.uidGoods=zz.uidgoods left join 
 	(select p.uidStore, p.uidgoods, p.period, p.cnt, p.days, p.demand from predict as p join 
@@ -1410,7 +1410,7 @@ func GetLastStateNetwork(num int, strmodul string) map[int]string {
 
 //SaveOper сохраняет данные заказов в базу
 func SaveOper(numdoc string, provider string, uidstore string, uidgoods string, period string, cnt float64, nextper string, delivery string) error {
-	//если заказ уже сделан то пропускаем
+	//если заказ уже сделан то пропускаем и не пишем
 	needwrite := true
 	rows, err := DB.Query("Select cnt from oper where provider=$1 and uidStore=$2 and delivdays>=$3", provider, uidstore, period)
 	if err == nil {
