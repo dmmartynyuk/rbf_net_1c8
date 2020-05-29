@@ -1412,7 +1412,7 @@ func GetLastStateNetwork(num int, strmodul string) map[int]string {
 func SaveOper(numdoc string, provider string, uidstore string, uidgoods string, period string, cnt float64, nextper string, delivery string) error {
 	//если заказ уже сделан то пропускаем и не пишем
 	needwrite := true
-	rows, err := DB.Query("Select cnt from oper where provider=$1 and uidStore=$2 and delivdays>=$3", provider, uidstore, period)
+	rows, err := DB.Query("Select cnt from oper where provider=$1 and uidStore=$2 and delivery>=$3", provider, uidstore, period)
 	if err == nil {
 		var nf sql.NullFloat64
 		if rows.Next() {

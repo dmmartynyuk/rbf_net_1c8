@@ -245,7 +245,7 @@ $(document).ready(function(){
 		events: {
 			searchPost: function (resultFromServer) {
 				var ret=new Array();
-				$.each(resultFromServer.data,function( index, value ){ret.push( {value:this.KeyGoods,text:this.Name});});
+				$.each(resultFromServer.data,function( index, value ){ret.push( {value:this.KeyGoods,text:"("+this.Art+") "+this.Name});});
 				return ret;
 			}
 		}

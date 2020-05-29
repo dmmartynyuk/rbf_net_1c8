@@ -21,7 +21,7 @@ import (
 )
 
 //Version версия программы
-const Version = "0.2.2"
+const Version = "0.2.3"
 
 //Mcalc флаг работы функции calculate
 type Mcalc struct {
@@ -1308,6 +1308,7 @@ func predictPage(c *gin.Context) {
 	hdata["Page"] = "sales"
 	hdata["User"] = "DM"
 	hdata["Title"] = "Продажи"
+	hdata["Version"] = Version
 	uidstore := c.DefaultQuery("uidstores", "")
 	uidgoods := c.DefaultQuery("uidgoods", "")
 	period := c.DefaultQuery("period", "")
@@ -1435,6 +1436,9 @@ func predictPage(c *gin.Context) {
 			}
 		}
 		datatab = datatab + ",['" + time.Now().AddDate(0, 0, 7).Format("2006-01-02") + "',,," + strconv.FormatFloat(prevbalance-demand*7, 'f', 0, 64) + "]"
+	} else {
+		datatab = datatab + ",['" + time.Now().Format("2006-01-02") + "',0,0,0]"
+		dataprof = dataprof + ",['" + time.Now().Format("2006-01-02") + "',0,0]"
 	}
 
 	hdata["Datasale"] = template.JS(datatab)
@@ -1465,11 +1469,12 @@ func orderProvPage(c *gin.Context) {
 	hdata["Providertext"] = providertext
 	hdata["Period"] = period
 
-	_, err := time.Parse("2006-01-02", period)
-	if err != nil {
-		hdata["Error"] = "Формат периода " + period + " не соответствует ожидаемому YYYY-MM-DD"
+	if period != "" {
+		_, err := time.Parse("2006-01-02", period)
+		if err != nil {
+			hdata["Error"] = "Формат периода " + period + " не соответствует ожидаемому YYYY-MM-DD"
+		}
 	}
-
 	c.HTML(
 		// Зададим HTTP статус 200 (OK)
 		http.StatusOK,
@@ -1547,7 +1552,7 @@ func main() {
 	router.GET("/tables", tablesPage)
 	router.GET("/help", helpPage)
 	router.GET("/sales", predictPage)
-	router.GET("/orders", orderProvPage)
+	router.GET("/ordersprov", orderProvPage)
 	api := router.Group("/api/")
 	{
 		api.GET("calc/", calculate)

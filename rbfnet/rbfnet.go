@@ -437,28 +437,33 @@ func GetSigma(x []float64) (mean float64, sigma float64, stat map[string]float64
 	centers := []float64{0.0}
 	var max float64 = 0.0
 	i := 0
-	mean = 0.0
+	frecmean := 0.0
 	for k := range frec {
 		inputs[i] = k
 		//max = math.Max(frec[k], max) //максимальное количество
 		if frec[k] > max {
 			max = frec[k]
-			mean = k
+			frecmean = k
 		}
 		i++
 	}
-	max = frec[mean]
+	//не гаусс
+	if int(frec[frecmean]*4) < len(frec) {
+		//sigma=max
+		return mean, sigma, stat
+	}
+	max = frec[frecmean]
 	sort.Float64s(inputs)
 	for k, v := range inputs {
 		output[k] = frec[v] / max //приводим к 1
-		if math.Abs(v-mean) < 1 {
+		if math.Abs(v-frecmean) < 1 {
 			centers[0] = v
 		}
 	}
 	r := NewRBFNetwork(len(inputs), 1, 3.0, centers)
 	r.Train(inputs, output, 1000)
 	sigma = r.Spread
-	return mean, sigma, stat
+	return frecmean, sigma, stat
 }
 
 func main() {

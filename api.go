@@ -90,7 +90,7 @@ func calcnet(kStore string, kGoods string) (retNext int, retDemand float64) {
 			}
 			//если прогноз делался не так давно, то возвращаем результаты последнего прогноза
 			lp, err := time.Parse("2006-01-02", merch.PredPeriod)
-			if recalc == false && lp.AddDate(0, 0, (int)(merch.PredDays/2)).Unix() >= time.Now().Unix() {
+			if !recalc && lp.AddDate(0, 0, (int)(merch.PredDays/2)).Unix() >= time.Now().Unix() {
 				retNext = merch.PredDays
 				retDemand = merch.PredDemand
 				continue
@@ -452,7 +452,7 @@ func apiMakeOrders() {
 				//ошибка сети, пересчитаем
 				recalc = true
 			}
-			if recalc == false && now.Unix() > next.Unix() {
+			if recalc || now.Unix() > next.Unix() {
 				merch.PredDays, merch.PredDemand = calcnet(uidstore, merch.KeyGoods)
 			}
 			//надо заказать для склада
