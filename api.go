@@ -14,11 +14,10 @@ import (
 func calcnet(kStore string, kGoods string) (retNext int, retDemand float64) {
 	ver := 2
 	var PROGPER, KC, INF, MAXSALES, prgper, lkc int
-	var stores *models.Stores
+	//var stores []models.Store
 	var guess = make([]float64, 3)
 	var predict = make([]float64, 3)
 	var now float64 = float64(int64(time.Now().Unix() / 86400)) //сегодня
-	var goods []models.MatrixGoods
 	var islog = true
 
 	retNext = 0
@@ -54,7 +53,7 @@ func calcnet(kStore string, kGoods string) (retNext int, retDemand float64) {
 	MAXSALES = conf.ValInt("maxsales", 720) //глубина просмотра продаж для составления статистики
 	//contracts, err = models.GetContracts()
 
-	stores, err = models.GetMagNames(0, kStore)
+	stores, err := models.GetMagNames(0, kStore)
 
 	if err != nil {
 		models.DbLog("calc. Ошибка чтения склада "+err.Error(), "calculate", time.Now().UTC().UnixNano())
@@ -62,14 +61,25 @@ func calcnet(kStore string, kGoods string) (retNext int, retDemand float64) {
 		//log.Fatalf("Ошибка чтения склада %s", err)
 	}
 	//по всем магазинам из stores
-	for uidstore, namest := range *stores {
+	for _, store := range stores {
+		uidstore := store.KeyStore
 		var sales = new(models.Sales)
-		goods, err = models.GetAllGoodsFromMatrix(uidstore, kGoods)
-
+		var goods []models.MatrixGoods
+		tipSales := "S"
+		if store.Tip < 0 {
+			continue
+		}
+		if store.Tip > 0 {
+			goods, err = models.GetAllGoodsFromMatrix(uidstore, kGoods)
+		} else {
+			goods, err = models.GetOptMatrix(uidstore, kGoods, MAXSALES)
+			//для оптового склада нет продаж, только движения
+			tipSales = "M"
+		}
 		if err != nil {
-			models.DbLog("calc. Ошибка чтения  матрицы магазина "+namest+" "+err.Error(), "calculate", time.Now().UTC().UnixNano())
+			models.DbLog("calc. Ошибка чтения  матрицы магазина "+store.Name+" "+err.Error(), "calculate", time.Now().UTC().UnixNano())
 			return
-			//log.Fatalf("Ошибка чтения матрицы магазина %s", namest)
+			//log.Fatalf("Ошибка чтения матрицы магазина %s", store.Name)
 		}
 		for _, merch := range goods {
 			if Mc.Val() < 0 {
@@ -98,12 +108,12 @@ func calcnet(kStore string, kGoods string) (retNext int, retDemand float64) {
 
 			predict[0] = 0.0
 			predict[1] = 0.0
-			sales, err = models.GetSales(uidstore, merch.KeyGoods, time.Now().AddDate(0, 0, -MAXSALES).Format("2006-01-02"))
+			sales, err = models.GetSales(uidstore, merch.KeyGoods, time.Now().AddDate(0, 0, -MAXSALES).Format("2006-01-02"), time.Now().Format("2006-01-02"), tipSales)
 			cnt := len(sales.Cnt)
 			if err != nil {
-				models.DbLog("calc. Ошибка чтения продаж магазина "+namest+" "+err.Error(), "calculate", time.Now().UTC().UnixNano())
+				models.DbLog("calc. Ошибка чтения продаж магазина "+store.Name+" "+err.Error(), "calculate", time.Now().UTC().UnixNano())
 				return
-				//log.Fatalf("Ошибка чтения продаж магазина %s %v", namest, err)
+				//log.Fatalf("Ошибка чтения продаж магазина %s %v", store.Name, err)
 			}
 			if cnt == 0 {
 				continue
@@ -114,7 +124,7 @@ func calcnet(kStore string, kGoods string) (retNext int, retDemand float64) {
 				return
 				//log.Fatalf("Ошибка чтения товара %s %v", merch, err)
 			}
-			//log.Println(namest)
+			//log.Println(store.Name)
 			firstdeal := sales.Udate[0]
 			lastdeal := sales.Udate[cnt-1]
 			//sales.Prevdays частота продаж в днях, от предидущей покупки
@@ -123,7 +133,7 @@ func calcnet(kStore string, kGoods string) (retNext int, retDemand float64) {
 			//если мало входных данных, то просто вычисляем по статистике
 			if cnt < KC*2 {
 				//если движение по складу было недавно, то закажем по последнему движению, иначе 0
-				if now-lastdeal < 20 {
+				if now-lastdeal < 30 {
 					//for i, z := cnt-1, 0; i >= 0 && z < 3; i-- {
 					//	predict[z] = sales.Cnt[i]
 					//	z++
@@ -247,7 +257,7 @@ func calcnet(kStore string, kGoods string) (retNext int, retDemand float64) {
 					p1 = statcnt["min"]
 				}
 			}
-			log.Printf("store=%v merch=%s %s, prognoz=%v  в следующие %v дней купят %v штук\n", namest, gt.Art, gt.Name, predict, nextdeal, p1)
+			log.Printf("store=%v merch=%s %s, prognoz=%v  в следующие %v дней купят %v штук\n", store.Name, gt.Art, gt.Name, predict, nextdeal, p1)
 
 			//nextdeal := lastdeal + meanpd + 3*sigmapd
 			//V1 demand
@@ -340,7 +350,7 @@ func calcnet(kStore string, kGoods string) (retNext int, retDemand float64) {
 
 //makeOrders делает таблицу заказов из predict
 func apiMakeOrders() {
-	var stores *models.Stores
+	//var stores models.Stores
 	var err error
 	var now = time.Now() //сегодня
 	var provider string
@@ -363,8 +373,9 @@ func apiMakeOrders() {
 
 	conf, err := models.GetConfig()
 	MINDAYSORD := conf.ValInt("minDaysOrd", 7)
+	MAXSALES := conf.ValInt("maxsales", 720)
 
-	stores, err = models.GetMagNames(0, "")
+	stores, err := models.GetMagNames(0, "")
 
 	if err != nil {
 		models.DbLog("makeOrders. Ошибка чтения склада "+err.Error(), "makeOrders", time.Now().UTC().UnixNano())
@@ -372,7 +383,13 @@ func apiMakeOrders() {
 	}
 	numzak := 0
 	//по всем магазинам читаем матрицу и делаем заказ
-	for uidstore, namest := range *stores {
+	for _, store := range stores {
+		uidstore := store.KeyStore
+		tipmov := "S"
+		if store.Tip == 0 {
+			tipmov = "M"
+		}
+		var goods []models.MatrixGoods
 		isneedord := false
 		delivdays := 1
 		//на основе данных по доставке делаем заказ
@@ -403,14 +420,18 @@ func apiMakeOrders() {
 		var ordersnum string
 		//номер заказа два знака, всего 99 заказов в день
 		if numzak < 10 {
-			ordersnum = strconv.Itoa(now.YearDay()) + "0" + strconv.Itoa(numzak)
+			ordersnum = tipmov + strconv.Itoa(now.YearDay()) + "0" + strconv.Itoa(numzak)
 		} else {
-			ordersnum = strconv.Itoa(now.YearDay()) + strconv.Itoa(numzak)
+			ordersnum = tipmov + strconv.Itoa(now.YearDay()) + strconv.Itoa(numzak)
 		}
-		//читаем матрицу, заказы делаем только по матрице
-		goods, err := models.GetAllGoodsFromMatrix(uidstore, "")
+		if store.Tip > 0 {
+			//читаем матрицу, заказы делаем только по матрице
+			goods, err = models.GetAllGoodsFromMatrix(uidstore, "")
+		} else {
+			goods, err = models.GetOptMatrix(uidstore, "", MAXSALES)
+		}
 		if err != nil {
-			models.DbLog("makeOrders. Ошибка чтения  матрицы магазина "+namest+" "+err.Error(), "makeOrders", time.Now().UTC().UnixNano())
+			models.DbLog("makeOrders. Ошибка чтения  матрицы магазина "+store.Name+" "+err.Error(), "makeOrders", time.Now().UTC().UnixNano())
 			return
 		}
 		datedelivdays := now.AddDate(0, 0, delivdays+1).Format("2006-01-02")
@@ -468,11 +489,7 @@ func apiMakeOrders() {
 					cntzak = merch.MinBalance - merch.Balance
 				}
 			}
-			/*
-				if cntzak > 0.0 && cntzak < merch.MinBalance {
-					cntzak = merch.MinBalance
-				}
-			*/
+
 			if cntzak > 0.0 && cntzak+merch.Balance > merch.MaxBalance && merch.MaxBalance > 0 {
 				cntzak = merch.MaxBalance - merch.Balance
 			}
@@ -496,6 +513,161 @@ func apiMakeOrders() {
 	}
 	models.DbLog("end makeOrders. Конец составления заказов", "makeOrders", time.Now().UTC().UnixNano())
 }
+
+/*
+//makeOrdersOpt делает таблицу заказов для оптовых складов
+func apiMakeOrdersOpt() {
+	//var stores *models.Stores
+	var err error
+	var now = time.Now() //сегодня
+	var provider string
+
+	Fop.Set(time.Now().UTC().UnixNano())
+	err = models.DbLog("beg makeOrders. Начало составления заказов для оптовых складов", "makeOrders", Fop.Val())
+
+	conf, err := models.GetConfig()
+	MINDAYSORD := conf.ValInt("minDaysOrd", 7)
+	MAXSALES := conf.ValInt("maxsales", 720)
+	//только оптовые склады, тип +100=0
+	stores, err := models.GetMagNames(-100, "")
+
+	if err != nil {
+		models.DbLog("makeOrders. Ошибка чтения склада "+err.Error(), "makeOrders", time.Now().UTC().UnixNano())
+		return
+	}
+	numzak := 0
+	//по всем складам делаем заказ
+	for _, store := range stores {
+		uidstore := store.KeyStore
+		isneedord := false
+		delivdays := 1
+		var goods []models.MatrixGoods
+		//на основе данных по доставке делаем заказ
+		var contr []models.Contract
+		contr, err = models.GetContracts(uidstore)
+		if err != nil {
+			//несмогли прочитать контракты, делаем заказ на завтра
+			isneedord = true
+		}
+		if len(contr) > 0 {
+			//смотрим частоту заказов на склад
+			delivdays = 9999
+			for _, v := range contr {
+				if inChedule(v.Chedord) {
+					if delivdays > v.Delivdays {
+						delivdays = v.Delivdays
+					}
+					isneedord = true
+					provider = v.Provider
+				}
+			}
+		}
+		if !isneedord {
+			//если заказ не надо делать, то следующий склад
+			continue
+		}
+		numzak++
+		var ordersnum string
+		//номер заказа два знака, всего 99 заказов в день
+		if numzak < 10 {
+			ordersnum = "M" + strconv.Itoa(now.YearDay()) + "0" + strconv.Itoa(numzak)
+		} else {
+			ordersnum = "M" + strconv.Itoa(now.YearDay()) + strconv.Itoa(numzak)
+		}
+		//для розничного склада заказы делаем только по матрице, для оптового - статистике движений
+		if store.Tip > 0 {
+			goods, err = models.GetAllGoodsFromMatrix(uidstore, "")
+		} else {
+			goods, err = models.GetOptMatrix(uidstore, "", MAXSALES)
+		}
+		if err != nil {
+			models.DbLog("makeOrders. Ошибка чтения  матрицы магазина "+store.Name+" "+err.Error(), "makeOrders", time.Now().UTC().UnixNano())
+			return
+		}
+		datedelivdays := now.AddDate(0, 0, delivdays+1).Format("2006-01-02")
+		if delivdays < MINDAYSORD {
+			delivdays = MINDAYSORD
+		}
+		for _, merch := range goods {
+			if Fop.Val() < 0 {
+				//надо завершиться
+				Fop.Set(0)
+				models.DbLog("stop. завершено по сигналу", "makeOrders", time.Now().UTC().UnixNano())
+				log.Printf("stop. завершено по сигналу")
+				return
+			}
+
+			//	lp, err := models.GetLastPredict(uidstore, merch.KeyGoods)
+			//	if err != nil {
+			//		models.DbLog("makeOrders. Ошибка чтения таблицы предсказаний "+err.Error(), "makeOrders", time.Now().UTC().UnixNano())
+			//		return
+			//	}
+			//если товар заказан уже то не заказываем
+			//это условие проверим при записи в заказ
+			//если остаток меньше чем минимум в матрице то доставляем до минималки
+
+			//lper дата последней продажи товара
+			lper, err := time.Parse("2006-01-02T15:04:05", merch.PredPeriod)
+			if err != nil {
+				//нет даты прогноза или формат даты другой
+				lper, err = time.Parse("2006-01-02", merch.PredPeriod)
+				if err != nil {
+					lper = time.Now()
+				}
+			}
+			//следующий раз надо заказывать не ранее
+			next := lper.AddDate(0, 0, merch.PredDays)
+			//надо ли пересчистать статистику?
+			recalc := false
+			if merch.PredDays > 0 && merch.PredDemand > (merch.PredCnt/float64(merch.PredDays))*20 {
+				//ошибка сети, пересчитаем
+				recalc = true
+			}
+			if recalc || now.Unix() > next.Unix() {
+				merch.PredDays, merch.PredDemand = calcnet(uidstore, merch.KeyGoods)
+			}
+			//надо заказать для склада
+			cntzak := float64(delivdays) * merch.PredDemand
+			//смотрим текущий остаток и минимальный остаток склада
+			//cntzak = cntzak - (merch.Balance - (merch.MinBalance + merch.Vitrina))
+			//if cntzak+merch.Balance > merch.MaxBalance {
+			//	cntzak = merch.MaxBalance - merch.Balance
+			//}
+			cntzak = cntzak - (merch.Balance - merch.Vitrina)
+			if merch.MinBalance > 0 && merch.Balance < merch.MinBalance {
+				if cntzak < merch.MinBalance-merch.Balance {
+					cntzak = merch.MinBalance - merch.Balance
+				}
+			}
+
+			//	if cntzak > 0.0 && cntzak < merch.MinBalance {
+			//		cntzak = merch.MinBalance
+			//	}
+
+			if cntzak > 0.0 && cntzak+merch.Balance > merch.MaxBalance && merch.MaxBalance > 0 {
+				cntzak = merch.MaxBalance - merch.Balance
+			}
+			//надо заказывать кратно step
+			if cntzak > 0.0 && merch.Step > 1 {
+				cntzak = float64(int(merch.Step) * int(cntzak/merch.Step+0.9999))
+			}
+
+			if cntzak > 0.0 && (int)(cntzak+0.5) > 0 {
+				models.SaveOper(ordersnum, provider, uidstore, merch.KeyGoods, now.Format("2006-01-02"), cntzak, next.Format("2006-01-02"), datedelivdays)
+			}
+			//обновим ср потребность в матрице
+			var m map[string]interface{}
+			m = map[string]interface{}{}
+			m["demand"] = merch.PredDemand
+			w := make(map[string]string)
+			w["uidStore"] = uidstore
+			w["uidGoods"] = merch.KeyGoods
+			models.UpdateMatrix(m, w)
+		}
+	}
+	models.DbLog("end makeOrders. Конец составления заказов", "makeOrders", time.Now().UTC().UnixNano())
+}
+*/
 
 //apiRecalcABC расчет АВС классификации товара для склада uidStore и товара uidGoods в течении периода period
 func apiRecalcABC(uidStore string, period1 string, period2 string) error {

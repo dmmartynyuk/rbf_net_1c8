@@ -14,9 +14,6 @@ import (
 // DB указатель на базу данных
 var DB *sql.DB
 
-//Stores магазины
-type Stores map[string]string
-
 // User stores information of a users
 type User struct {
 	Name  string
@@ -76,9 +73,12 @@ type OrderXML struct {
 type Store struct {
 	KeyStore string
 	Name     string
-	Tip      string
+	Tip      int
 	Calendar string
 }
+
+//Stores магазины
+//type Stores []Store //type Stores map[string]string
 
 // Contract Описание поставок
 type Contract struct {
@@ -677,6 +677,7 @@ func (c Config) Save() (string, error) {
 		if rows.Next() {
 			err := rows.Scan(&value)
 			if err != nil {
+				rows.Close()
 				return err.Error(), err
 			}
 			if value == v {
@@ -746,39 +747,39 @@ func (c Config) ValString(key string, def string) string {
 	return ret
 }
 
-// GetMagNames возвращает срез мапов из таблицы магазинов. tip-тип склада. В выборку попадают склады равно или выше значения tip
-func GetMagNames(tip int, uidStore string) (*Stores, error) {
-	st := make(Stores)
+// GetMagNames возвращает срез из таблицы магазинов. tip-тип склада. В выборку попадают склады равно или выше значения tip
+func GetMagNames(tip int, uidStore string) ([]Store, error) {
+	st := make([]Store, 0, 25)
 	var q string
-	var z = len(uidStore)
+	w := ""
+	if len(uidStore) > 0 {
+		w = " and uid='" + Escape(uidStore) + "'"
+	}
 	if tip <= -50 {
-		q = "select uid, name from stores where tip=$1;"
+		q = "select uid, name, tip, calendar from stores where tip=$1 " + w + " order by name;"
 		tip = tip + 100
 	} else {
-		q = "select uid, name from stores where tip>=$1;"
+		q = "select uid, name, tip, calendar from stores where tip>=$1 " + w + " order by name;"
 	}
 	rows, err := DB.Query(q, tip) //where name like '%рдж%'
 	if err != nil {
-		return &st, err
+		return st, err
 		//log.Panic(err)
 	}
 	defer rows.Close()
-	var uid string
-	var name string
+	var s Store
+	var nuls sql.NullString
 	for rows.Next() {
-		err := rows.Scan(&uid, &name)
+		err := rows.Scan(&s.KeyStore, &s.Name, &s.Tip, &nuls)
 		if err != nil {
-			return &st, err
+			return st, err
 		}
-		if z > 1 {
-			if uidStore == uid {
-				st[uid] = name
-			}
-		} else {
-			st[uid] = name
+		if nuls.Valid {
+			s.Calendar = nuls.String
 		}
+		st = append(st, s)
 	}
-	return &st, nil
+	return st, nil
 
 }
 
@@ -843,20 +844,24 @@ func GetGoods(q string) ([]Goods, error) {
 		return gds, err
 		//log.Panic(err)
 	}
-	defer rows.Close()
 	for rows.Next() {
 		err := rows.Scan(&st.KeyGoods, &st.Grp, &st.Name, &st.Art)
 		if err != nil {
+			rows.Close()
 			return gds, err
 		}
 		gds = append(gds, st)
 	}
+	rows.Close()
 	if len(gds) > 0 {
 		return gds, nil
 	}
 	//не нашли по артиклу,ищем по наименованию
-	rows.Close()
 	rows, err = DB.Query("select uid, groupname, name, art from goods where name like $1;", "%"+q+"%")
+	if err != nil {
+		return gds, err
+	}
+	defer rows.Close()
 	for rows.Next() {
 		err := rows.Scan(&st.KeyGoods, &st.Grp, &st.Name, &st.Art)
 		if err != nil {
@@ -889,10 +894,10 @@ func GetSales(kStore string, kGoods string, p ...string) (*Sales, error) {
 	switch len(p) {
 	case 0:
 		p1 = "2000-01-01"
-		p2 = "date('now')"
+		p2 = "now"
 	case 1:
 		p1 = p[0]
-		p2 = "date('now')"
+		p2 = "now"
 	case 3:
 		p1 = p[0]
 		p2 = p[1]
@@ -912,7 +917,7 @@ func GetSales(kStore string, kGoods string, p ...string) (*Sales, error) {
 	s.KeyStore = kStore
 	s.KeyGoods = kGoods
 	//CREATE TABLE goodsmov (id integer PRIMARY KEY, uidStore text NOT NULL, uidGoods text NOT NULL, groupGoods text, period text NOT NULL, cnt real, summa integer, margin real, balance real, prevdays integer, zerodays integer
-	rows, err := DB.Query("select CAST( strftime('%s', m.period)/86400 as Integer) as uprd, m.cnt as cnt , m.prevdays as pd, m.period, m.balance, m.margin, m.summa, m.zerodays, CASE m.tipmov WHEN 'S' THEN 0 ELSE 1 END as tipmov from goodsmov m where m.uidStore=$1 and m.uidGoods=$2 and m.period>=$3 and m.period<=$4 order by m.period;", kStore, kGoods, p1, p2)
+	rows, err := DB.Query("select CAST( strftime('%s', m.period)/86400 as Integer) as uprd, m.cnt as cnt , m.prevdays as pd, m.period, m.balance, m.margin, m.summa, m.zerodays, CASE m.tipmov WHEN 'S' THEN 0 ELSE 1 END as tipmov from goodsmov m where m.uidStore=$1 and m.uidGoods=$2 and date(m.period)>=date($3) and date(m.period)<=date($4) order by m.period;", kStore, kGoods, p1, p2)
 	if err != nil {
 		return s, err
 		//log.Panic(err)
@@ -1052,7 +1057,7 @@ func GetAllGoodsFromMatrix(kStore string, kGoods string) (mg []MatrixGoods, err 
 	(select max(period) as mperiod, max(id) as id,uidStore, uidgoods from predict where uidStore=$1 group by uidStore, uidgoods) as p1
 	on p.id=p1.id where p.uidStore=$1) as p on s.uidStore=p.uidStore and s.uidgoods=p.uidgoods where s.uidStore=$1 and s.inuse=1;`, kStore)
 	} else {
-		rows, err = DB.Query(`select s.uidGoods, s.minbalance, s.maxbalance, ifnull(s.abc,'C') as abc, s.vitrina, ifnull(zz.balance,0) as balance, ifnull(p.period,'1970-01-01') as predictper , ifnull(p.cnt,0) as predcnt, ifnull(p.days,0) as preddays, ifnull(p.demand,0) as preddemand, s.step from salesmatrix s LEFT JOIN 
+		rows, err = DB.Query(`select s.uidGoods, s.minbalance, s.maxbalance, ifnull(s.abc,'C') as abc, s.vitrina, ifnull(zz.balance,0.0) as balance, ifnull(p.period,'1970-01-01') as predictper , ifnull(p.cnt,0.0) as predcnt, ifnull(p.days,0) as preddays, ifnull(p.demand,0.0) as preddemand, s.step from salesmatrix s LEFT JOIN 
 	(select z.uidgoods as uidgoods, z.balance as balance, z.period from goodsmov as z join (select max(g.id) as id from goodsmov as g where g.uidStore=$1 and g.uidgoods=$2 group by g.uidStore, g.uidgoods) as a on a.id=z.id) as zz
 	on s.uidGoods=zz.uidgoods left join 
 	(select p.uidStore, p.uidgoods, p.period, p.cnt, p.days, p.demand from predict as p join 
@@ -1411,8 +1416,8 @@ func GetLastStateNetwork(num int, strmodul string) map[int]string {
 //SaveOper сохраняет данные заказов в базу
 func SaveOper(numdoc string, provider string, uidstore string, uidgoods string, period string, cnt float64, nextper string, delivery string) error {
 	//если заказ уже сделан то пропускаем и не пишем
-	needwrite := true
-	rows, err := DB.Query("Select cnt from oper where provider=$1 and uidStore=$2 and delivery>=$3", provider, uidstore, period)
+	//needwrite := true
+	rows, err := DB.Query("Select cnt from oper where provider=$1 and uidStore=$2 and uidGoods=$3 and delivery>=$4", provider, uidstore, uidgoods, period)
 	if err == nil {
 		var nf sql.NullFloat64
 		if rows.Next() {
@@ -1420,14 +1425,14 @@ func SaveOper(numdoc string, provider string, uidstore string, uidgoods string, 
 			if err == nil {
 				if nf.Valid {
 					cnt = nf.Float64 - cnt
-					needwrite = false
+					//needwrite = false
 				}
 			}
 
 		}
 		rows.Close()
 	}
-	if needwrite && cnt > 0 {
+	if cnt > 0 {
 		_, err := DB.Exec("INSERT OR REPLACE INTO oper (uidStore, uidGoods, provider, period, cnt, nextper,NumDoc,delivery) VALUES($1,$2,$3,$4,$5,$6,$7,$8);", uidstore, uidgoods, provider, period, cnt, nextper, numdoc, delivery)
 		if err != nil {
 			return err
@@ -1614,4 +1619,63 @@ func GetZakazXML(period string) ([]OrderXML, error) {
 	order.Items = itemsxml
 	orders = append(orders, order)
 	return orders, nil
+}
+
+//GetOptMatrix собирает матрицу товаров для склада по итогам продаж
+func GetOptMatrix(uidStores string, uidGoods string, days int) (mg []MatrixGoods, err error) {
+	var rows *sql.Rows
+	if len(uidGoods) == 0 {
+		rows, err = DB.Query(`select s.uidGoods, s.minbalance, s.maxbalance, ifnull(zz.balance,0.0) as balance, ifnull(p.period,'1970-01-01') as predictper , ifnull(p.cnt,0.0) as predcnt, ifnull(p.days,0) as preddays, ifnull(p.demand,0.0) as preddemand from
+		(select m.uidStore, m.uidGoods, 0 as minbalance, 0 as maxbalance, 0 as vitrin from goodsmov m where  julianday('now') - julianday(m.period)<$2 and m.uidStore=$1 GROUP BY m.uidStore, m.uidGoods) as s
+		LEFT JOIN 
+		(select z.uidgoods as uidgoods, z.balance as balance, z.period from goodsmov as z join (select max(g.id) as id from goodsmov as g where g.uidStore=$1 group by g.uidStore, g.uidgoods) as a on a.id=z.id) as zz
+			on s.uidGoods=zz.uidgoods left join 
+			(select p.uidStore, p.uidgoods, p.period, p.cnt, p.days, p.demand from predict as p join 
+			(select max(period) as mperiod, max(id) as id,uidStore, uidgoods from predict where uidStore=$1 group by uidStore, uidgoods) as p1
+			on p.id=p1.id where p.uidStore=$1) as p on s.uidStore=p.uidStore and s.uidgoods=p.uidgoods where s.uidStore=$1;`, uidStores, days)
+	} else {
+		rows, err = DB.Query(`select s.uidGoods, s.minbalance, s.maxbalance, ifnull(zz.balance,0.0) as balance, ifnull(p.period,'1970-01-01') as predictper , ifnull(p.cnt,0.0) as predcnt, ifnull(p.days,0) as preddays, ifnull(p.demand,0.0) as preddemand from
+		(select m.uidStore, m.uidGoods, 0 as minbalance, 0 as maxbalance, 0 as vitrin from goodsmov m where  julianday('now') - julianday(m.period)<$3 and m.uidStore=$1 and m.uidGoods=$2 GROUP BY m.uidStore, m.uidGoods) as s
+		LEFT JOIN 
+		(select z.uidgoods as uidgoods, z.balance as balance, z.period from goodsmov as z join (select max(g.id) as id from goodsmov as g where g.uidStore=$1 and g.uidgoods=$2 group by g.uidStore, g.uidgoods) as a on a.id=z.id) as zz
+			on s.uidGoods=zz.uidgoods left join 
+			(select p.uidStore, p.uidgoods, p.period, p.cnt, p.days, p.demand from predict as p join 
+			(select max(period) as mperiod, max(id) as id,uidStore, uidgoods from predict where uidStore=$1 and uidgoods=$2 group by uidStore, uidgoods) as p1
+			on p.id=p1.id where p.uidStore=$1 and p.uidgoods=$2) as p on s.uidStore=p.uidStore and s.uidgoods=p.uidgoods where s.uidStore=$1 and s.uidGoods=$2;`, uidStores, uidGoods, days)
+	}
+	//select m.uidStore, m.uidGoods, CASE WHEN julianday(max(m.period))-julianday(min(m.period)) <= 10 AND julianday('now')-julianday(min(m.period)) <50 THEN 1 WHEN julianday(max(m.period))-julianday(min(m.period)) <= 10 THEN 0 ELSE 1 END minBalance, CASE WHEN julianday(max(m.period))-julianday(min(m.period)) > 10 THEN CAST(0.5+count(m.cnt)*30/(julianday(max(m.period))-julianday(min(m.period))) AS INTEGER) ELSE 0 END as maxBalance from goodsmov m GROUP BY m.uidStore, m.uidGoods;
+	lmg := MatrixGoods{}
+	mg = make([]MatrixGoods, 0, 250)
+	if err != nil {
+		return mg, err
+		//log.Panic(err)
+	}
+	defer rows.Close()
+	var nf sql.NullFloat64
+	var nfd sql.NullFloat64
+	var nsp sql.NullString
+	for rows.Next() {
+		err := rows.Scan(&lmg.KeyGoods, &lmg.MinBalance, &lmg.MaxBalance, &nf, &nsp, &lmg.PredCnt, &lmg.PredDays, &nfd)
+		if err != nil {
+			return mg, err
+		}
+		if nf.Valid {
+			lmg.Balance = nf.Float64
+		} else {
+			lmg.Balance = 0.0
+		}
+		if nfd.Valid {
+			lmg.PredDemand = nfd.Float64
+		} else {
+			lmg.PredDemand = 0.0
+		}
+		lmg.Abc = "F"
+		if nsp.Valid {
+			lmg.PredPeriod = nsp.String
+		} else {
+			lmg.PredPeriod = "1970-01-01"
+		}
+		mg = append(mg, lmg)
+	}
+	return mg, nil
 }
