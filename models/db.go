@@ -3,6 +3,7 @@ package models
 import (
 	"database/sql"
 	"encoding/xml"
+	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -23,26 +24,32 @@ type User struct {
 
 //ZakazGoods строки заказа
 type ZakazGoods struct {
-	//Gds товар
-	Gds   string
-	Price float64
-	Cnt   float64
+	//UID товар
+	UID   string  `json:"uid"`
+	Price float64 `json:"price"`
+	Cnt   float64 `json:"cnt"`
+	Art   string  `json:"art"`
+	Name  string  `json:"name"`
 }
 
 //Zakaz заказы
 type Zakaz struct {
 	//Provider uid поставщика
-	Provider string
+	Provider string `json:"provideruid"`
+	//ProviderName имя поставщика
+	ProviderName string `json:"providername"`
 	//Recipient uid получателя
-	Recipient string
+	Recipient string `json:"recipientuid"`
+	//RecipientName имя получателя
+	RecipientName string `json:"recipientname"`
 	//Period дата заказа
-	Period string
+	Period string `json:"period"`
 	//Num номер заказа
-	Num string
+	Num string `json:"numdoc"`
 	//DelivPeriod следующая дата поставки
-	DelivPeriod string
+	DelivPeriod string `json:"deliveryperiod"`
 	//Items массив строк заказа
-	Items []ZakazGoods
+	Items []ZakazGoods `json:"items"`
 }
 
 //ItemXML структура строк заказов
@@ -245,10 +252,12 @@ func Escape(source string) string {
 			j = j + 1
 		}
 	}
-	return string(desc[0:j])
+	//return string(desc[0:j])
+	//sqlite3 двойные кавычки заменяются парой
+	return strings.ReplaceAll(string(desc[0:j]), "\\'", "''")
 }
 func escstr(s string) string {
-	res := strings.ReplaceAll(s, "'", "''")
+	res := strings.ReplaceAll(s, "\\'", "''")
 	res = strings.ReplaceAll(res, ";", "\\;")
 	res = strings.ReplaceAll(res, "\"", "''")
 	res = strconv.Quote(res)
@@ -309,11 +318,171 @@ func InitDB(dataSourceName string) error {
 	return err
 }
 
+func dbGetVal(q string, args ...interface{}) (interface{}, error) {
+	var ret interface{}
+	rows, err := DB.Query(q, args...)
+	if err != nil {
+		return nil, err
+		//log.Panic(err)
+	}
+	defer rows.Close()
+	if rows.Next() {
+		err := rows.Scan(&ret)
+		if err != nil {
+			return nil, err
+		}
+		return ret, nil
+	}
+	return nil, errors.New("Нет данных")
+}
+
+func dbGetStrVal(q string, args ...interface{}) (string, error) {
+	var ret string = ""
+	rows, err := DB.Query(q, args...)
+	if err != nil {
+		return ret, err
+	}
+	defer rows.Close()
+	if rows.Next() {
+		err := rows.Scan(&ret)
+		if err != nil {
+			return ret, err
+		}
+		return ret, nil
+	}
+	return ret, errors.New("Нет данных")
+}
+
+func dbGetIntVal(q string, args ...interface{}) (int, error) {
+	var ret int
+	rows, err := DB.Query(q, args...)
+	if err != nil {
+		return ret, err
+	}
+	defer rows.Close()
+	if rows.Next() {
+		err := rows.Scan(&ret)
+		if err != nil {
+			return ret, err
+		}
+		return ret, nil
+	}
+	return ret, errors.New("Нет данных")
+}
+func dbGetFVal(q string, args ...interface{}) (float64, error) {
+	var ret float64 = 0.0
+	rows, err := DB.Query(q, args...)
+	if err != nil {
+		return ret, err
+	}
+	defer rows.Close()
+	if rows.Next() {
+		err := rows.Scan(&ret)
+		if err != nil {
+			return ret, err
+		}
+		return ret, nil
+	}
+	return ret, errors.New("Нет данных")
+}
+
+func dbGetRow(q string, args ...interface{}) (map[string]interface{}, error) {
+	rows, err := DB.Query(q, args...)
+	if err != nil {
+		return nil, err
+		//log.Panic(err)
+	}
+	defer rows.Close()
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, err
+		//panic(err)
+	}
+	ctype, err := rows.ColumnTypes()
+	if err != nil {
+		return nil, err
+		//panic(err)
+	}
+	retrow := make(map[string]interface{})
+	lencol := len(columns)
+	//значения по умолчанию
+	for i := 0; i < lencol; i++ {
+		switch ctype[i].DatabaseTypeName() {
+		//"VARCHAR", "TEXT", "NVARCHAR", "DECIMAL", "BOOL", "INT", "BIGINT"
+		//sqlite^  INTEGER, REAL, TEXT и BLOB NUMERIC
+		case "INT":
+			retrow[columns[i]] = 0
+		case "TEXT":
+			retrow[columns[i]] = ""
+		case "INTEGER":
+			retrow[columns[i]] = 0
+		case "REAL":
+			retrow[columns[i]] = 0.0
+		case "NUMERIC":
+			retrow[columns[i]] = 0.0
+		case "BOOL":
+			retrow[columns[i]] = false
+		case "BLOB":
+			retrow[columns[i]] = ""
+		default:
+			retrow[columns[i]] = ""
+		}
+
+	}
+
+	if rows.Next() {
+		row := make([]interface{}, 0, lencol)
+		//инициализируем row
+		for i := 0; i < lencol; i++ {
+			var current interface{}
+			current = struct{}{}
+			row = append(row, &current)
+		}
+		//читаем таблицу в row
+		if err := rows.Scan(row...); err != nil {
+			return nil, err
+			//panic(err)
+		}
+		for i := 0; i < lencol; i++ {
+			key := columns[i]
+			//приводим к интерфейсу
+			val := *(row[i]).(*interface{})
+			if val == nil {
+				retrow[key] = "null"
+				continue
+			}
+			switch val.(type) {
+			case int:
+				retrow[key] = val.(int64)
+			case int64:
+				retrow[key] = val.(int64)
+			case string:
+				retrow[key] = deescstr(val.(string))
+			case time.Time:
+				retrow[key] = val.(time.Time).Format("2006-01-02T15:04:05")
+			case []uint8:
+				retrow[key] = string(val.([]uint8))
+			case float64:
+				retrow[key] = val.(float64)
+			case bool:
+				retrow[key] = val.(bool)
+			default:
+				retrow[key] = "?"
+				//fmt.Printf("unsupport data type '%s' now\n", vType)
+				// TODO remember add other data type
+			}
+		}
+		return retrow, nil
+	}
+	return nil, nil
+}
+
 //GetTable вернет количество строк в запросе, []map[int]interface{} где map[0] ключевое поле [0]map имена полей
 func GetTable(tname string, page int, gate int, cond string) (int, string, []map[int]interface{}, error) {
 	var s string
 	var recs string
 	var rcount int
+	var err error
 	limit := " limit " + strconv.Itoa(gate*page) + "," + strconv.Itoa(gate)
 	if gate == 0 {
 		limit = ""
@@ -341,20 +510,13 @@ func GetTable(tname string, page int, gate int, cond string) (int, string, []map
 		s = "select s.ROWID,s.uidStore,st.name as storename,s.uidGoods as uidGoods,g.groupname as groupname, g.name as goodsname, g.Art as art,s.minbalance as minbalance,s.maxbalance as maxbalance,s.inuse as inuse,s.abc as abc, s.step as step, ifnull(s.demand,0.0)  from salesmatrix as s left join stores as st on s.uidStore=st.uid left join goods as g on s.uidGoods=g.uid" + where + " order by st.name, g.groupname, g.art" + limit + ";"
 		recs = "select count(s.ROWID) from salesmatrix as s left join stores as st on s.uidStore=st.uid left join goods as g on s.uidGoods=g.uid" + where + ";"
 	}
-	rows, err := DB.Query(recs)
+	rcount, err = dbGetIntVal(recs)
 	if err != nil {
 		return 0, "", nil, err
 		//log.Panic(err)
 	}
-	if rows.Next() {
-		err := rows.Scan(&rcount)
-		if err != nil {
-			rows.Close()
-			return 0, "", nil, err
-		}
-	}
-	rows.Close()
-	rows, err = DB.Query(s)
+
+	rows, err := DB.Query(s)
 	if err != nil {
 		return 0, s, nil, err
 		//log.Panic(err)
@@ -368,6 +530,7 @@ func GetTable(tname string, page int, gate int, cond string) (int, string, []map
 	lencol := len(columns)
 	result := make([]map[int]interface{}, 0)
 	value := make(map[int]interface{})
+	//первая строка имена колонок
 	for i := 0; i < lencol; i++ {
 		value[i] = columns[i]
 	}
@@ -485,6 +648,7 @@ func InsertTableData(tabname string, matr []map[string]interface{}, keydel map[s
 		_, err := DB.Exec(s)
 		if err != nil {
 			DB.Exec("ROLLBACK TRANSACTION;")
+			//log.Println(s)
 			return err
 		}
 	}
@@ -839,11 +1003,13 @@ func GetGoods(q string) ([]Goods, error) {
 	if len(q) == 0 {
 		return gds, nil
 	}
-	rows, err := DB.Query("select uid, groupname, name, art from goods where art like $1;", q+"%")
+	s := "select uid, groupname, name, art from goods where art like '" + Escape(q) + "%' union select uid, groupname, name, art from goods where name like '%" + Escape(q) + "%';"
+	rows, err := DB.Query(s)
 	if err != nil {
 		return gds, err
 		//log.Panic(err)
 	}
+	defer rows.Close()
 	for rows.Next() {
 		err := rows.Scan(&st.KeyGoods, &st.Grp, &st.Name, &st.Art)
 		if err != nil {
@@ -852,28 +1018,11 @@ func GetGoods(q string) ([]Goods, error) {
 		}
 		gds = append(gds, st)
 	}
-	rows.Close()
-	if len(gds) > 0 {
-		return gds, nil
-	}
-	//не нашли по артиклу,ищем по наименованию
-	rows, err = DB.Query("select uid, groupname, name, art from goods where name like $1;", "%"+q+"%")
-	if err != nil {
-		return gds, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		err := rows.Scan(&st.KeyGoods, &st.Grp, &st.Name, &st.Art)
-		if err != nil {
-			return gds, err
-		}
-		gds = append(gds, st)
-	}
 	return gds, nil
 
 }
 
-//CreateGoods возвращает срез мапов из таблицы товаров.
+//CreateGoods заносит товары в таблицу.
 func CreateGoods(g *Goods) (int64, error) {
 
 	res, err := DB.Exec("INSERT OR REPLACE INTO goods (uid, groupname, name, art) values($1,$2,$3,$4) ;", g.KeyGoods, g.Grp, g.Name, g.Art)
@@ -1417,21 +1566,11 @@ func GetLastStateNetwork(num int, strmodul string) map[int]string {
 func SaveOper(numdoc string, provider string, uidstore string, uidgoods string, period string, cnt float64, nextper string, delivery string) error {
 	//если заказ уже сделан то пропускаем и не пишем
 	//needwrite := true
-	rows, err := DB.Query("Select cnt from oper where provider=$1 and uidStore=$2 and uidGoods=$3 and delivery>=$4", provider, uidstore, uidgoods, period)
+	cents, err := dbGetFVal("Select cnt from oper where provider=$1 and uidStore=$2 and uidGoods=$3 and delivery>=$4", provider, uidstore, uidgoods, period)
 	if err == nil {
-		var nf sql.NullFloat64
-		if rows.Next() {
-			err := rows.Scan(&nf)
-			if err == nil {
-				if nf.Valid {
-					cnt = nf.Float64 - cnt
-					//needwrite = false
-				}
-			}
-
-		}
-		rows.Close()
+		cnt = cents - cnt
 	}
+	//заказ д.б. больше нуля
 	if cnt > 0 {
 		_, err := DB.Exec("INSERT OR REPLACE INTO oper (uidStore, uidGoods, provider, period, cnt, nextper,NumDoc,delivery) VALUES($1,$2,$3,$4,$5,$6,$7,$8);", uidstore, uidgoods, provider, period, cnt, nextper, numdoc, delivery)
 		if err != nil {
@@ -1443,47 +1582,64 @@ func SaveOper(numdoc string, provider string, uidstore string, uidgoods string, 
 }
 
 //GetZakaz получает данные заказов
-func GetZakaz(period string) ([]Zakaz, error) {
+func GetZakaz(num string, page int, gate int, sortfield string, sortorder string) (int, []Zakaz, error) {
 	var zaks = make([]Zakaz, 0)
 	var zg = make([]ZakazGoods, 0)
-
-	var err error
 	var rows *sql.Rows
-	if period == "last" {
-		rows, err = DB.Query("Select period from oper ORDER BY period DESC Limit 1;")
-		if err != nil {
-			return zaks, err
-			//log.Panic(err)
-		}
-		var p string
-		if rows.Next() {
-			err = rows.Scan(&p)
-			if err != nil {
-				rows.Close()
-				return zaks, err
-			}
-		}
-		rows.Close()
-		//t, _ := time.Parse("2006-01-02T", p)
-		period = p //t.Format("2006-01-02")
+	var err error
+	var recs int = 0
+	var orderby string = ""
+	limit := " limit " + strconv.Itoa(1+gate*(page-1)) + "," + strconv.Itoa(gate)
+	if gate == 0 {
+		limit = ""
 	}
-	rows, err = DB.Query("Select uidStore, uidGoods, provider, period, cnt, nextper, NumDoc from oper WHERE period>=$1 ORDER BY NumDoc,provider,uidStore;", period)
+	if sortorder != "desc" && sortorder != "DESC" {
+		sortorder = "asc"
+	}
+	if len(sortfield) > 0 {
+		switch sortfield {
+		case "provider":
+			orderby = "ORDER BY pr.name " + sortorder
+		case "recipient":
+			orderby = "ORDER BY s.name " + sortorder
+		case "period":
+			orderby = "ORDER BY o.period " + sortorder
+		case "numdoc":
+			orderby = "ORDER BY o.NumDoc " + sortorder
+		default:
+			orderby = "ORDER BY o.NumDoc " + sortorder
+		}
+	} else {
+		orderby = "ORDER BY o.period, o.NumDoc, s.name"
+	}
+	//все заказы без строк
+	if num == "" {
+		recs, _ = dbGetIntVal("Select count(distinct NumDoc) FROM oper;")
+		rows, err = DB.Query("Select distinct o.uidStore as uidStore, '' as uidGoods, o.provider as uidprovider, o.period as period, 0 as cnt, '' as nextper, o.NumDoc, ifnull(s.name,'') as sname, '' as gname, '' as art, pr.name as provname FROM oper o left join stores s on o.uidStore=s.uid left join providers as pr on o.provider=pr.uid " + orderby + limit + ";")
+	} else {
+		recs, _ = dbGetIntVal("Select count(*) FROM oper WHERE NumDoc=$1;", num)
+		rows, err = DB.Query("Select o.uidStore as uidStore, o.uidGoods as uidGoods, o.provider as uidprovider, o.period as period, o.cnt, o.nextper, o.NumDoc, ifnull(s.name,'') as sname, ifnull(g.name,'') as gname, ifnull(g.art,'') as art, pr.name as provname FROM oper o left join goods g on o.uidgoods=g.uid left join stores s on o.uidStore=s.uid left join providers as pr on o.provider=pr.uid WHERE o.NumDoc=$1 ORDER BY g.art"+limit+";", num)
+	}
 	if err != nil {
-		return zaks, err
+		return 0, zaks, err
 		//log.Panic(err)
 	}
 	defer rows.Close()
-	var store, goods, provider, pr, nextper, numdoc, prevnum, prevprov, prevstore string
+	var store, provider, pr, nextper, numdoc, prevnum, prevprov, prevstore, sname string
 	var cnt sql.NullFloat64
+	var art sql.NullString
+	var gname sql.NullString
+	var pname sql.NullString
 	z := Zakaz{}
 	i := ZakazGoods{}
 	for rows.Next() {
-		err := rows.Scan(&store, &goods, &provider, &pr, &cnt, &nextper, &numdoc)
+		i = ZakazGoods{}
+		err := rows.Scan(&store, &i.UID, &provider, &pr, &cnt, &nextper, &numdoc, &sname, &gname, &art, &pname)
 		if err != nil {
-			return zaks, err
+			return 0, zaks, err
 		}
 
-		if len(zaks) != 0 && (prevprov != provider || prevstore != store || prevnum != numdoc) {
+		if z.Provider != "" && (prevprov != provider || prevstore != store || prevnum != numdoc) {
 			//новый док
 			z.Items = zg
 			zaks = append(zaks, z)
@@ -1492,27 +1648,49 @@ func GetZakaz(period string) ([]Zakaz, error) {
 			z.DelivPeriod = nextper
 			z.Num = numdoc
 			z.Provider = provider
+			if pname.Valid {
+				z.ProviderName = pname.String
+			} else {
+				z.ProviderName = ""
+			}
 			z.Recipient = store
+			z.RecipientName = sname
 			i = ZakazGoods{}
 			zg = make([]ZakazGoods, 0)
 		}
+		//инициализация значений, первая запись
 		if z.Provider == "" {
-			//z = Zakaz{}
 			z.Period = pr
 			z.DelivPeriod = nextper
 			z.Num = numdoc
 			z.Provider = provider
 			z.Recipient = store
+			z.RecipientName = sname
+			if pname.Valid {
+				z.ProviderName = pname.String
+			} else {
+				z.ProviderName = ""
+			}
 			zg = make([]ZakazGoods, 0)
 		}
-		i = ZakazGoods{}
+
 		if cnt.Valid {
-			i.Cnt = cnt.Float64
+			i.Cnt = float64(int(cnt.Float64 + 0.5))
 		} else {
 			i.Cnt = 0.0
 		}
+		if art.Valid {
+			i.Art = art.String
+		} else {
+			i.Art = ""
+		}
+		if gname.Valid {
+			i.Name = gname.String
+		} else {
+			i.Name = ""
+		}
 		i.Price = 0.0
-		i.Gds = goods
+
 		zg = append(zg, i)
 		prevnum = numdoc
 		prevprov = provider
@@ -1520,7 +1698,7 @@ func GetZakaz(period string) ([]Zakaz, error) {
 	}
 	z.Items = zg
 	zaks = append(zaks, z)
-	return zaks, nil
+	return recs, zaks, nil
 }
 
 //GetZakazXML получает данные заказов
@@ -1545,21 +1723,16 @@ func GetZakazXML(period string) ([]OrderXML, error) {
 		}
 	}
 	if period == "last" {
-		rows, err = DB.Query("Select period from oper ORDER BY period DESC Limit 1;")
+		pret, err := dbGetStrVal("Select period from oper ORDER BY period DESC Limit 1;")
 		if err != nil {
 			return orders, err
 			//log.Panic(err)
 		}
-		var p string
-		if rows.Next() {
-			err = rows.Scan(&p)
-			if err != nil {
-				rows.Close()
-				return orders, err
-			}
+		if pret == "" {
+			e := errors.New("Нет данных")
+			return orders, e
 		}
-		rows.Close()
-		period = p
+		period = pret
 	}
 
 	rows, err = DB.Query("Select uidStore, uidGoods, provider, period, cnt, nextper, NumDoc from oper WHERE date(period)=date($1) ORDER BY NumDoc,provider,uidStore;", period)
@@ -1594,7 +1767,6 @@ func GetZakazXML(period string) ([]OrderXML, error) {
 		}
 		//для первой итерации
 		if order.Provider == "" {
-			//z = Zakaz{}
 			order.Period = pr
 			order.DelivPeriod = nextper
 			order.Num = numdoc

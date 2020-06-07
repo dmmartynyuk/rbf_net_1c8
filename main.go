@@ -21,7 +21,7 @@ import (
 )
 
 //Version версия программы
-const Version = "0.2.5"
+const Version = "0.2.8"
 
 //Mcalc флаг работы функции calculate
 type Mcalc struct {
@@ -1454,35 +1454,98 @@ func predictPage(c *gin.Context) {
 	)
 }
 
-//orderProvPage страница заказов поставщикам
-func orderProvPage(c *gin.Context) {
+//ordersPage страница заказов
+func ordersPage(c *gin.Context) {
+	const PAGERS = 10
 	hdata := make(map[string]interface{})
-	hdata["Page"] = "ordersprov"
+	hdata["Page"] = "orders"
 	hdata["Version"] = Version
 	hdata["User"] = "DM"
 	hdata["Title"] = "Заказы поставщикам"
 	provider := c.DefaultQuery("provider", "")
 	providertext := c.DefaultQuery("provider_text", "")
-	period := c.DefaultQuery("period", "")
-	//numdoc := c.DefaultQuery("numdoc", "")
+	store := c.DefaultQuery("store", "")
+	//period := c.DefaultQuery("period", "")
+	numdoc := c.DefaultQuery("numdoc", "")
+	pgq := c.DefaultQuery("pageIndex", "1")
+	gateq := c.DefaultQuery("pageSize", "15")
+	sortField := c.DefaultQuery("sortField", "period")
+	sortOrder := c.DefaultQuery("sortOrder", "asc")
+	pg, ok := strconv.Atoi(pgq)
+	if ok != nil {
+		pg = 1
+	}
+	gate, ok := strconv.Atoi(gateq)
+	if ok != nil {
+		gate = 15
+	}
+	hdata["PageSize"] = gate //strconv.FormatInt(int64(gate), 10)
+	hdata["PageIndex"] = pg  //strconv.FormatInt(int64(pg), 10)
+	hdata["SortField"] = sortField
+	hdata["SortOrder"] = sortOrder
 	hdata["Provider"] = provider
 	hdata["Providertext"] = providertext
-	hdata["Period"] = period
+	hdata["Store"] = store
+	//hdata["Period"] = period
+	hdata["Numdoc"] = numdoc
+	recs, zakazs, err := models.GetZakaz(numdoc, pg, gate, sortField, sortOrder)
+	if err != nil {
+		hdata["Error"] = err.Error()
+	}
 
-	if period != "" {
-		_, err := time.Parse("2006-01-02", period)
-		if err != nil {
-			hdata["Error"] = "Формат периода " + period + " не соответствует ожидаемому YYYY-MM-DD"
+	hdata["Zaks"] = zakazs
+	hdata["Fpage"] = (pg-1)*gate + 1
+	//paginator
+	//определим текущий блок страниц
+	if int(recs/gate) > PAGERS {
+		z := make([]int, 0, PAGERS)
+		//pg счет с 1, поэтому pg-1
+		//fp := (pg-1)*gate + 1
+		for i, cp := 0, int((pg-1)/PAGERS)*PAGERS+1; i < PAGERS && gate*(cp+i-1)+1 <= recs; i++ {
+			z = append(z, 0)
+			z[i] = cp + i
 		}
+		hdata["Pagination"] = z
+		if (int((pg-1)/PAGERS)*PAGERS+PAGERS)*gate < recs {
+			hdata["Nextpages"] = int((pg-1)/PAGERS)*PAGERS + PAGERS + 1
+		}
+		hdata["Prevpages"] = int(pg/PAGERS)*PAGERS - PAGERS + 1
+		if int(pg/PAGERS)*PAGERS-PAGERS < 0 {
+			hdata["Prevpages"] = 1
+		}
+	} else {
+		//страниц мало, до 10
+		hdata["Nextpages"] = 1
+		hdata["Prevpages"] = 1
+		z := make([]int, int(recs/gate)+1)
+		for i := range z {
+			z[i] = i + 1
+		}
+		hdata["Pagination"] = z
 	}
 	c.HTML(
 		// Зададим HTTP статус 200 (OK)
 		http.StatusOK,
 		// Используем шаблон index.html
-		"ordersprov",
+		"orders",
 		// Передадим данные в шаблон
 		hdata,
 	)
+}
+
+//getOrder выгруит заказ
+func getOrder(c *gin.Context) {
+
+	numdoc := c.Param("numdoc")
+
+	recs, zakazs, err := models.GetZakaz(numdoc, 0, 0, "", "")
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"error": err.Error()})
+		return
+	}
+
+	//c.XML(http.StatusOK, gin.H{"orders": z})
+	c.JSON(http.StatusOK, gin.H{"recs": recs, "orders": zakazs})
 }
 
 //helpPage страница справочника
@@ -1535,6 +1598,9 @@ func main() {
 				}
 				return ""
 			},
+			"Plus": func(a, b int) int {
+				return a + b
+			},
 			"isError": func(e string) bool {
 				return len(e) > 0
 			},
@@ -1552,7 +1618,7 @@ func main() {
 	router.GET("/tables", tablesPage)
 	router.GET("/help", helpPage)
 	router.GET("/sales", predictPage)
-	router.GET("/ordersprov", orderProvPage)
+	router.GET("/orders", ordersPage)
 	api := router.Group("/api/")
 	{
 		api.GET("calc/", calculate)
@@ -1579,6 +1645,7 @@ func main() {
 		api.POST("makeorders/", mkorders)
 		api.POST("recalcabc/:store", setABC)
 		api.GET("getorders/", getZakaz)
+		api.GET("getorder/:numdoc", getOrder)
 
 		//api.DELETE("goods/:id", DeleteProduct)
 	}

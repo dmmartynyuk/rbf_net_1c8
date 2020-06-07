@@ -1,0 +1,262 @@
+{{template "base" .}}
+{{define "title"}}Заказы поставщикам{{end}}
+{{define "pagestyle"}}
+<style type="text/css">
+tr.active{
+	background-color:#c2dcfd;
+}
+th.sort-desc::before{
+border-width: 5px 5px 0;
+border-color: #009a67 transparent transparent;
+}
+th.sort-asc::before{
+border-width: 0 5px 5px;
+border-color: transparent transparent #009a67;
+}
+th.sort::before{
+content: " ";
+    display: block;
+    float: left;
+    width: 0;
+    height: 0;
+    border-style: solid;
+}	
+.sortable{
+cursor:pointer;
+}
+</style>
+{{end}}
+{{define "content"}}
+<div class="container-fluid">
+	<div class="row">
+	<!--
+        <div class="col-md-2 d-none d-md-block bg-light sidebar">
+          <div class="sidebar-sticky">
+            <ul class="nav flex-column">
+              <li class="nav-item">
+                <a id="stores" class="nav-link d-flex active"  href="#" data-sel="none"><i class="zmdi zmdi-account"></i><span class="col-md-12">Продажи</span><i class="tabnav"></i></a>
+              </li>
+            </ul>          
+          </div>
+        </div>
+-->
+        <main role="main" class="col-md-12 ml-sm-auto col-lg-10 pt-3 px-4">
+		{{if .Error}}
+		<div class="alert alert-danger" role="alert">
+		{{.Error}}
+		</div>
+		{{end}}
+		<h1 class="h2">Заказы поставщикам</h1>
+		<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pb-2 mb-3 border-bottom">
+			<input id="pageindex" type="hidden" style="display:none;" value="{{.PageIndex}}">
+			<input id="pagesize" type="hidden" style="display:none;" value="{{.PageSize}}">
+			<input id="sortfield" type="hidden" style="display:none;" value="{{.SortField}}">
+			<input id="sortorder" type="hidden" style="display:none;" value="{{.SortOrder}}">
+			<table class="table table-hover table-sm" id="taborder">
+			  <thead>
+				<tr>
+				  <th scope="col">#</th>
+				  <th scope="col" class="sortable{{if eq .SortField "period"}} sort{{end}}{{if eq .SortOrder "asc"}} sort-asc{{else}} sort-desc{{end}}" data-fname="period">Дата</th>
+				  <th scope="col" class="sortable{{if eq .SortField "numdoc"}} sort{{end}}{{if eq .SortOrder "asc"}} sort-asc{{else}} sort-desc{{end}}" data-fname="numdoc">Номер</th>
+				  <th scope="col" class="sortable{{if eq .SortField "provider"}} sort{{end}}{{if eq .SortOrder "asc"}} sort-asc{{else}} sort-desc{{end}}" data-fname="provider">Поставщик</th>
+				  <th scope="col" class="sortable{{if eq .SortField "recipient"}} sort{{end}}{{if eq .SortOrder "asc"}} sort-asc{{else}} sort-desc{{end}}" data-fname="recipient">Получатель</th>
+				</tr>
+			  </thead>
+			  <tbody>
+			  {{range $index, $el := .Zaks}}
+			  <tr class="rowtab">
+			  <th scope="row">{{Plus $.Fpage $index}}</th>
+				<td>{{$el.Period}}</td>
+				<td class="itemdoc">{{$el.Num}}</td>
+				<td>{{$el.ProviderName}}</td>
+				<td>{{$el.RecipientName}}</td>
+			</tr>
+			{{end}}
+			</tbody>
+			</table>
+		</div>
+		<div class="row">
+            <nav aria-label="Page navigation example">
+			  <ul class="pagination">
+				<li class="page-item">
+				  <a class="page-link" href="/orders?pageIndex={{.Prevpages}}&pageSize={{.PageSize}}&sortField={{.SortField}}&sortOrder={{.SortOrder}}" aria-label="Previous">
+					<span aria-hidden="true">&laquo;</span>
+					<span class="sr-only">Предидущий</span>
+				  </a>
+				</li>
+				{{range $i, $p := .Pagination}}
+				<li class="page-item{{if eq $p $.PageIndex}} active{{end}}">
+					<a id="page{{$p}}" class="page-link" href="/orders?pageIndex={{$p}}&pageSize={{$.PageSize}}&sortField={{$.SortField}}&sortOrder={{$.SortOrder}}" >{{$p}}</a>
+				</li>
+				{{end}}
+				{{if .Nextpages}}
+				<li class="page-item">
+				  <a class="page-link" href="/orders?pageIndex={{.Nextpages}}&pageSize={{.PageSize}}&sortField={{.SortField}}&sortOrder={{.SortOrder}}" aria-label="Next">
+					<span aria-hidden="true">&raquo;</span>
+					<span class="sr-only">Следующий</span>
+				  </a>
+				</li>
+				{{end}}
+			  </ul>
+			</nav>
+		</div>
+		<hr />
+		<h4>Данные заказа</h4>
+			<div id="itemsheader">
+			<p><strong>Дата заказа:</strong>&nbsp;<span class="blockquote" id="period"></span></p>
+			<div class="row">
+			<div class="col-md-4"><strong>Поставщик:</strong></div><div class="col-md-8"><span class="blockquote" id="provider"></span></div>
+			</div>
+			<div class="row">
+			<div class="col-md-4"><strong>Получатель:</strong></div><div class="col-md-8"><span class="blockquote" id="recipient"></span></div>
+			</div>
+			<p><strong>Предполагаемая дата доставки:</strong>&nbsp;<span class="blockquote" id="delivery"></span></p>
+			</div>
+        	<div id="itemstab"></div>
+        </main>
+		
+		
+     </div>  
+</div>
+{{end}}
+{{define "jscript"}}
+<script src="/assets/js/bootstrap-autocomplete.min.js"></script>
+<script type="text/javascript">
+
+function exportToCSV(typ) {
+    var obj;
+    var fn="{{.Tabname}}.csv";
+	obj=gtab.datachart;
+    if (!obj.length) {
+		return;
+	}
+    var csvContent = "data:text/csv;charset=utf-8,";
+    // headers
+	for (i=0;i<obj.length;i++){
+		comma="";
+        for(r=0;r<obj[i].length;r++){
+			csvContent =csvContent+comma+obj[i][r];
+            comma=";";
+        } 
+        csvContent +="\n";
+	} 
+    csvContent +="\n";
+    var encodedUri = encodeURI(csvContent);
+    var link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", fn);
+    document.body.appendChild(link); // Required for FF
+	link.click();
+    document.body.removeChild(link); 
+}
+function getAllUrlParams(url) {
+      // get query string from url (optional) or window
+      var queryString = url ? url.split('?')[1] : window.location.search.slice(1);
+      // we'll store the parameters here
+      var obj = {};
+      // if query string exists
+      if (queryString) {
+        // stuff after # is not part of query string, so get rid of it
+        queryString = queryString.split('#')[0];
+        // split our query string into its component parts
+        var arr = queryString.split('&');
+        for (var i = 0; i < arr.length; i++) {
+          // separate the keys and the values
+          var a = arr[i].split('=');
+          // set parameter name and value (use 'true' if empty)
+          var paramName = a[0];
+          var paramValue = typeof (a[1]) === 'undefined' ? true : a[1];
+          // (optional) keep case consistent
+          paramName = paramName.toLowerCase();
+          if (typeof paramValue === 'string') paramValue = paramValue.toLowerCase();
+          // if the paramName ends with square brackets, e.g. colors[] or colors[2]
+          if (paramName.match(/\[(\d+)?\]$/)) {
+            // create key if it doesn't exist
+            var key = paramName.replace(/\[(\d+)?\]/, '');
+            if (!obj[key]){ obj[key] = [];}
+            // if it's an indexed array e.g. colors[2]
+            if (paramName.match(/\[\d+\]$/)) {
+              // get the index value and add the entry at the appropriate position
+              var index = /\[(\d+)\]/.exec(paramName)[1];
+              obj[key][index] = paramValue;
+            } else {
+              // otherwise add the value to the end of the array
+              obj[key].push(paramValue);
+            }
+          } else {
+            // we're dealing with a string
+            if (!obj[paramName]) {
+              // if it doesn't exist, create property
+              obj[paramName] = paramValue;
+            } else if (obj[paramName] && typeof obj[paramName] === 'string'){
+              // if property does exist and it's a string, convert it to an array
+              obj[paramName] = [obj[paramName]];
+              obj[paramName].push(paramValue);
+            } else {
+              // otherwise add the property
+               obj[paramName].push(paramValue);
+            }
+          }
+        }
+      }
+      return obj;
+}
+$(document).ready(function(){
+  $('#taborder').on('click', '.rowtab', function(){
+    var doc=$(this).find('.itemdoc').text();
+	$.get( "/api/getorder/"+doc).done(function( data ) {
+		var RWS=25;
+		//itemsheader
+		$("#period").text(data.orders[0].period);
+		$("#recipient").text(data.orders[0].recipientname.replace(/\\/g,""));
+		$("#provider").text(data.orders[0].providername.replace(/\\/g,""));
+		$("#delivery").text(data.orders[0].deliveryperiod);
+		$("#itemstab").html("");
+		var table = document.createElement('table')
+		table.className = 'table table-bordered table-striped table-sm';
+		table.id="tabitems";
+		var items=data.orders[0].items;
+		var str='<thead><tr><th scope="col">#</th><th scope="col">Артикул</th><th scope="col">Наименование</th><th scope="col">Количество</th></tr></thead><tbody>';
+		for (var i = 0; i < items.length; i++) {
+			var snum=i+1
+			  str+='<tr scope="row"><td>'+snum+'</td><td data-uid="'+items[i].uid+'">'+items[i].art+'</td><td>'+items[i].name.replace(/\\/g,"")+'</td><td>'+items[i].cnt+'</td></tr>'
+		}
+		str+='</tbody>';
+		table.innerHTML=str
+		$("#itemstab").append(table);
+	});
+	$('#taborder tr.active').each(function( index ) {
+		$( this ).removeClass("active"); 
+	});
+	$(this).addClass("active");
+  });
+  $('.sortable').on('click',function(){
+	asc="asc";
+	sf=$(this).data("fname");
+	if ($(this).hasClass("sort")){
+		if ($(this).hasClass("sort-asc")){
+			asc="desc";//делаем desc
+			$( this ).removeClass("sort-asc");
+			$(this).addClass("sort-desc");
+		}else{
+			$( this ).removeClass("sort-desc");
+			$(this).addClass("sort-asc");
+		}
+	}else{
+		$('#taborder tr th').each(function( index ) {
+			$( this ).removeClass("sort"); 
+			$( this ).removeClass("sort-asc");
+			$( this ).removeClass("sort-desc");
+		});
+	}
+	pgi=$("#pageindex").val();
+	if(Number(pgi)==NaN){
+		pgi=1;
+	}
+	pgs=$("#pagesize").val();
+	var url="/orders?pageIndex="+pgi+"&pageSize="+pgs+"&sortField="+sf+"&sortOrder="+asc;
+	window.location.href=url;
+  });
+});
+</script>
+{{end}}

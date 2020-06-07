@@ -484,12 +484,19 @@ func apiMakeOrders() {
 			//	cntzak = merch.MaxBalance - merch.Balance
 			//}
 			cntzak = cntzak - (merch.Balance - merch.Vitrina)
-			if merch.MinBalance > 0 && merch.Balance < merch.MinBalance {
-				if cntzak < merch.MinBalance-merch.Balance {
-					cntzak = merch.MinBalance - merch.Balance
+			//если указан максимальный баланс, то добиваем до него
+			if merch.MaxBalance > 0 {
+				if merch.Balance+cntzak < merch.MaxBalance {
+					cntzak = merch.MaxBalance - merch.Balance
+				}
+			} else {
+				if merch.MinBalance > 0 && merch.Balance < merch.MinBalance {
+					if cntzak < merch.MinBalance-merch.Balance {
+						cntzak = merch.MinBalance - merch.Balance
+					}
 				}
 			}
-
+			//но не более maxbalance
 			if cntzak > 0.0 && cntzak+merch.Balance > merch.MaxBalance && merch.MaxBalance > 0 {
 				cntzak = merch.MaxBalance - merch.Balance
 			}

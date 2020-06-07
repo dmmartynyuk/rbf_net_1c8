@@ -1,0 +1,253 @@
+{{template "base" .}}
+{{define "title"}}Продажи{{end}}
+{{define "pagestyle"}}
+<style type="text/css">
+</style>
+{{end}}
+{{define "content"}}
+<div class="container-fluid">
+	<div class="row">
+        <nav class="col-md-2 d-none d-md-block bg-light sidebar" style="position: relative !important;padding: 15px 0 0;">
+          <div class="sidebar-sticky">
+            <ul class="nav flex-column">
+              <li class="nav-item">
+                <a id="stores" class="nav-link d-flex {{setActive .Tabname "sales"}}"  href="/sales/?tab=sales" data-sel="none"><i class="zmdi zmdi-account"></i><span class="col-md-12">Продажи</span><i class="tabnav"></i></a>
+              </li>
+			  <li class="nav-item">
+                <a id="predict" class="nav-link d-flex {{setActive .Tabname "predict"}}"  href="/sales/?tab=predict" data-sel="none"><i class="zmdi zmdi-account"></i><span class="col-md-12">Прогноз</span><i class="tabnav"></i></a>
+              </li>
+            </ul>          
+          </div>
+        </nav>
+
+        <main role="main" class="col-md-9 ml-sm-auto col-lg-10 pt-3 px-4">
+		{{if .Error}}
+		<div class="alert alert-danger" role="alert">
+		{{.Error}}
+		</div>
+		{{end}}
+		<h1 class="h2">Продажи</h1>
+		<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pb-2 mb-3 border-bottom">
+            
+			<form style="width:90%;" action="/sales" method="get">
+				<div class="row">
+					<div class="col-md-3">
+						<div class="form-group">
+							<input type="hidden" name="uidstores_text" id="uidstores_text" value="{{.Uidstores_text}}"/>
+							<select class="form-control basicAutoSelect" id="uidstores" name="uidstores" placeholder="Склад...">
+							<option value="0" {{if eq .Uidstores ""}}selected{{end}}>Выбирете склад...</option>
+		{{range $index, $el := .Stores}}
+		{{$uid:=index $el 0}}
+		{{if gt $index 0}}
+		<option value="{{$uid}}" {{if eq $.Uidstores $uid}}selected{{end}}>{{index $el 1}}</option>	
+		{{end}}
+		{{end}}
+							</select>
+							
+						</div>
+					</div>	
+					<div class="col-md-6">
+						<div class="form-group">
+							<div class="input-group-append">
+							<select class="form-control basicAutoSelect" id="uidgoods" name="uidgoods" placeholder="Номенклатура..."
+								data-url="/api/goods/" autocomplete="off"></select>
+							
+							<div class="input-group-text" style="cursor:pointer" id="clearGoods">X</div>
+							</div>
+						</div>
+					</div>
+					<div class="col-md-2">
+						<div class="form-group">
+							<select class="form-control basicAutoSelect" id="period" name="period" value="{{.Period}}">
+								<option value="1" {{if eq .Period "1"}}selected{{end}}>Месяц</option>
+							  <option value="3" {{if eq .Period "3"}}selected{{end}}>Квартал</option>
+							  <option value="6" {{if eq .Period "6"}}selected{{end}}>Полугодие</option>
+							  <option value="9" {{if eq .Period "9"}}selected{{end}}>9 мес</option>
+							  <option value="12" {{if eq .Period "12"}}selected{{end}}>Год</option>
+							  <option value="36" {{if eq .Period "36"}}selected{{end}}>Три года</option>>
+							</select>
+						</div>
+					</div>
+					<div class="col-md-1">
+					<button class="btn btn-light" type="submit">
+					<svg fill="#000000" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50" width="30px" height="30px"><path d="M 21 3 C 11.621094 3 4 10.621094 4 20 C 4 29.378906 11.621094 37 21 37 C 24.710938 37 28.140625 35.804688 30.9375 33.78125 L 44.09375 46.90625 L 46.90625 44.09375 L 33.90625 31.0625 C 36.460938 28.085938 38 24.222656 38 20 C 38 10.621094 30.378906 3 21 3 Z M 21 5 C 29.296875 5 36 11.703125 36 20 C 36 28.296875 29.296875 35 21 35 C 12.703125 35 6 28.296875 6 20 C 6 11.703125 12.703125 5 21 5 Z"/></svg>
+					</button>
+					</div>
+				</div>	
+			</form>
+	
+        </div>
+        <div id="tab_divcons"></div>
+		<div id="chrts_div" style="height:450px;"></div>
+		<p>  
+		<blockquote class="blockquote">
+		<p class="mb-0">Всего продано за период: {{.SalesCounts}} шт.</p>
+		<footer class="blockquote-footer">{{.Uidgoods_text}} по складу <cite title="{{.SalesCounts}}">{{.Uidstores_text}}</cite></footer>
+		</blockquote>
+		</p>  
+        <div id="tab_div"></div>
+		<div id="prof_chart" style="height:300px;"></div>
+		<p>  
+		<blockquote class="blockquote">
+		<p class="mb-0">Выручка за период: {{.SalesSumm}} руб.</p>
+		<footer class="blockquote-footer">Прибыль от продажи за период составила <cite title="{{.SalesCounts}}">{{.SalesProfit}} руб.</cite></footer>
+		</blockquote>
+		</p>
+        </main>
+     </div>  
+</div>
+{{end}}
+{{define "jscript"}}
+<script src="/assets/js/bootstrap-autocomplete.min.js"></script>
+<script type="text/javascript">
+var gsale ={
+    datachart: [ {{.Datasale}} ],
+	gdatac:null,
+    options : {
+        title: 'Продажи и остатки',
+		curveType: 'function',
+		isStacked: 'absolute',
+        legend: { position: 'right' }
+	}
+}
+var gprofit ={
+    dataprofit: [ {{.Dataprofit}} ],
+    options : {
+        title: 'прибыль',
+		curveType: 'function',
+		//isStacked: 'absolute',
+        legend: { position: 'right' }
+	}
+}
+	google.charts.load('current', {'packages':['corechart']});
+    google.charts.setOnLoadCallback(drawSaleChart);
+    google.charts.setOnLoadCallback(drawProfit);
+
+	
+    function drawSaleChart() {
+        gsale.gdatac = google.visualization.arrayToDataTable(gsale.datachart);
+        //gsale.chartcost = new google.visualization.ColumnChart(document.getElementById('chrts_div'));
+        gsale.chartcost = new google.visualization.LineChart(document.getElementById('chrts_div'));
+        gsale.chartcost.draw(gsale.gdatac, gsale.options);
+        //drawTableSale();
+
+    }
+    function drawTableSale() {
+        //var data = new google.visualization.DataTable();
+        var data = google.visualization.arrayToDataTable(gsale.datachart);
+	      //data.addColumn('string', 'период');
+        var table = new google.visualization.Table(document.getElementById('tab_div'));
+        table.draw(data, {allowHtml: true, showRowNumber: true, width: '100%', height: '100%'});
+    }  
+    function drawProfit() {
+      gprofit.gdatap = google.visualization.arrayToDataTable(gprofit.dataprofit);
+      gprofit.chartprof = new google.visualization.ColumnChart(document.getElementById('prof_chart')); //ColumnChart
+      gprofit.chartprof.draw(gprofit.gdatap, gprofit.options);
+      drawTableProfit();
+    }
+    function drawTableProfit() {
+      var data = google.visualization.arrayToDataTable(gprofit.dataprofit);
+      var table = new google.visualization.Table(document.getElementById('tab_divprof'));
+      table.draw(data, {allowHtml: true, showRowNumber: true, width: '100%', height: '100%'});
+    } 
+function exportToCSV(typ) {
+    var obj;
+    var fn="{{.Tabname}}.csv";
+	obj=gtab.datachart;
+    if (!obj.length) {
+		return;
+	}
+    var csvContent = "data:text/csv;charset=utf-8,";
+    // headers
+	for (i=0;i<obj.length;i++){
+		comma="";
+        for(r=0;r<obj[i].length;r++){
+			csvContent =csvContent+comma+obj[i][r];
+            comma=";";
+        } 
+        csvContent +="\n";
+	} 
+    csvContent +="\n";
+    var encodedUri = encodeURI(csvContent);
+    var link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", fn);
+    document.body.appendChild(link); // Required for FF
+	link.click();
+    document.body.removeChild(link); 
+}
+function getAllUrlParams(url) {
+      // get query string from url (optional) or window
+      var queryString = url ? url.split('?')[1] : window.location.search.slice(1);
+      // we'll store the parameters here
+      var obj = {};
+      // if query string exists
+      if (queryString) {
+        // stuff after # is not part of query string, so get rid of it
+        queryString = queryString.split('#')[0];
+        // split our query string into its component parts
+        var arr = queryString.split('&');
+        for (var i = 0; i < arr.length; i++) {
+          // separate the keys and the values
+          var a = arr[i].split('=');
+          // set parameter name and value (use 'true' if empty)
+          var paramName = a[0];
+          var paramValue = typeof (a[1]) === 'undefined' ? true : a[1];
+          // (optional) keep case consistent
+          paramName = paramName.toLowerCase();
+          if (typeof paramValue === 'string') paramValue = paramValue.toLowerCase();
+          // if the paramName ends with square brackets, e.g. colors[] or colors[2]
+          if (paramName.match(/\[(\d+)?\]$/)) {
+            // create key if it doesn't exist
+            var key = paramName.replace(/\[(\d+)?\]/, '');
+            if (!obj[key]){ obj[key] = [];}
+            // if it's an indexed array e.g. colors[2]
+            if (paramName.match(/\[\d+\]$/)) {
+              // get the index value and add the entry at the appropriate position
+              var index = /\[(\d+)\]/.exec(paramName)[1];
+              obj[key][index] = paramValue;
+            } else {
+              // otherwise add the value to the end of the array
+              obj[key].push(paramValue);
+            }
+          } else {
+            // we're dealing with a string
+            if (!obj[paramName]) {
+              // if it doesn't exist, create property
+              obj[paramName] = paramValue;
+            } else if (obj[paramName] && typeof obj[paramName] === 'string'){
+              // if property does exist and it's a string, convert it to an array
+              obj[paramName] = [obj[paramName]];
+              obj[paramName].push(paramValue);
+            } else {
+              // otherwise add the property
+               obj[paramName].push(paramValue);
+            }
+          }
+        }
+      }
+      return obj;
+}
+$(document).ready(function(){
+	$("#uidgoods").autoComplete({
+		events: {
+			searchPost: function (resultFromServer) {
+				var ret=new Array();
+				$.each(resultFromServer.data,function( index, value ){ret.push( {value:this.KeyGoods,text:this.Name+" ("+this.Art+")"});});
+				return ret;
+			}
+		}
+	});
+	{{if .Uidstores}}
+	$("#uidgoods").autoComplete('set', { value: "{{.Uidgoods}}", text: "{{.Uidgoods_text}}"});
+	{{end}}
+	$("#clearGoods").on("click",function(){
+		$("#uidgoods").autoComplete('clear');
+	});
+	$("#uidstores").change(function(){
+        var selected = $(this).children("option:selected").text();
+        $("#uidstores_text").val(selected);
+    });
+});
+</script>
+{{end}}
