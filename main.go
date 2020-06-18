@@ -21,7 +21,7 @@ import (
 )
 
 //Version версия программы
-const Version = "0.2.8"
+const Version = "0.2.11"
 
 //Mcalc флаг работы функции calculate
 type Mcalc struct {
@@ -737,10 +737,10 @@ func setSales(c *gin.Context) {
 		if v.Period == "" {
 			m["period"] = time.Now().Format("2006-01-02T15:04:05")
 		} else {
-			lper, err := time.Parse("2006-01-02T15:04:05", v.Period)
+			lper, err := time.Parse("2006-01-02", v.Period)
 			if err != nil {
 				//формат даты другой
-				lper, err = time.Parse("2006-01-02", v.Period)
+				lper, err = time.Parse("2006-01-02T15:04:05", v.Period)
 				if err != nil {
 					c.JSON(http.StatusNotAcceptable, gin.H{"status": http.StatusNotAcceptable, "error": true, "message": "формат даты должен быть 2006-01-02T15:02:05" + err.Error()})
 					return
@@ -791,8 +791,8 @@ func mkorders(c *gin.Context) {
 
 	stop := c.DefaultQuery("stop", "none")
 	start := c.DefaultQuery("start", "none")
-	//store := c.DefaultQuery("store", "")
-	//goods := c.DefaultQuery("goods", "")
+	store := models.Escape(c.DefaultQuery("store", ""))
+	goods := models.Escape(c.DefaultQuery("goods", ""))
 	//c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "start= " + start + " stop=" + stop})
 	if stop != "none" && stop != "" {
 		v, err := strconv.Atoi(stop)
@@ -815,8 +815,8 @@ func mkorders(c *gin.Context) {
 		return
 	}
 	if start == "ok" {
-		go apiMakeOrders()
-		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "запущен расчет " + time.Now().Format("2 Jan 2006 15:04:05")})
+		go apiMakeOrders(store, goods)
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "запущен расчет " + time.Now().Format("2 Jan 2006 15:04:05") + store + goods})
 		return
 	}
 	slog := models.GetLastStateNetwork(3, "makeOrders")
@@ -993,7 +993,7 @@ func startPage(c *gin.Context) {
 		//c.Redirect(http.StatusContinue, "config")
 	}
 
-	lastdblog := models.GetLastStateNetwork(5, "")
+	lastdblog := models.GetLastStateNetwork(7, "")
 	ki := make([]int, 0, len(lastdblog))
 	for k := range lastdblog {
 		ki = append(ki, k)
@@ -1004,6 +1004,8 @@ func startPage(c *gin.Context) {
 		s = s + time.Unix(0, int64(v)).Format("2 Jan 2006 15:04:05") + " " + lastdblog[v] + "<br />"
 	}
 	hdata["Neurostatus"] = template.HTML(s)
+	st, _ := models.GetMagNames(0, "")
+	hdata["Stores"] = st
 	c.HTML(
 		// Зададим HTTP статус 200 (OK)
 		http.StatusOK,

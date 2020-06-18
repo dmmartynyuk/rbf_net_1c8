@@ -219,7 +219,7 @@ $(document).ready(function(){
 		var str='<thead><tr><th scope="col">#</th><th scope="col">Артикул</th><th scope="col">Наименование</th><th scope="col">Количество</th></tr></thead><tbody>';
 		for (var i = 0; i < items.length; i++) {
 			var snum=i+1
-			  str+='<tr scope="row"><td>'+snum+'</td><td data-uid="'+items[i].uid+'">'+items[i].art+'</td><td>'+items[i].name.replace(/\\/g,"")+'</td><td>'+items[i].cnt+'</td></tr>'
+			  str+='<tr scope="row"><td>'+snum+'</td><td data-uid="'+items[i].uid+'"><a href="/sales?uidstores='+data.orders[0].recipientuid+'&uidgoods='+items[i].uid+'&period=3&uidstores_text='+data.orders[0].recipientname.replace(/"/g,"\'")+'&uidgoods_text=('+items[i].art+") "+items[i].name.replace(/"/g,"\'")+'" target="_blank">'+items[i].art+'</a></td><td>'+items[i].name.replace(/\\/g,"")+'</td><td>'+items[i].cnt+'</td></tr>'
 		}
 		str+='</tbody>';
 		table.innerHTML=str

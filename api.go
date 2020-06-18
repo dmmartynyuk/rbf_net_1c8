@@ -348,8 +348,8 @@ func calcnet(kStore string, kGoods string) (retNext int, retDemand float64) {
 	return
 }
 
-//makeOrders делает таблицу заказов из predict
-func apiMakeOrders() {
+//makeOrders делает таблицу заказов из predict для склада uidstorearg и товара uidgoodarg. Если склад и/или товар="", то для всех складов и всех товаров
+func apiMakeOrders(uidstorearg, uidgoodarg string) {
 	//var stores models.Stores
 	var err error
 	var now = time.Now() //сегодня
@@ -375,13 +375,13 @@ func apiMakeOrders() {
 	MINDAYSORD := conf.ValInt("minDaysOrd", 7)
 	MAXSALES := conf.ValInt("maxsales", 720)
 
-	stores, err := models.GetMagNames(0, "")
+	stores, err := models.GetMagNames(0, uidstorearg)
 
 	if err != nil {
 		models.DbLog("makeOrders. Ошибка чтения склада "+err.Error(), "makeOrders", time.Now().UTC().UnixNano())
 		return
 	}
-	numzak := 0
+	numzak := models.GetLastNumZakaz(now.Format("2006-01-02"))
 	//по всем магазинам читаем матрицу и делаем заказ
 	for _, store := range stores {
 		uidstore := store.KeyStore
@@ -426,9 +426,9 @@ func apiMakeOrders() {
 		}
 		if store.Tip > 0 {
 			//читаем матрицу, заказы делаем только по матрице
-			goods, err = models.GetAllGoodsFromMatrix(uidstore, "")
+			goods, err = models.GetAllGoodsFromMatrix(uidstore, uidgoodarg)
 		} else {
-			goods, err = models.GetOptMatrix(uidstore, "", MAXSALES)
+			goods, err = models.GetOptMatrix(uidstore, uidgoodarg, MAXSALES)
 		}
 		if err != nil {
 			models.DbLog("makeOrders. Ошибка чтения  матрицы магазина "+store.Name+" "+err.Error(), "makeOrders", time.Now().UTC().UnixNano())
@@ -485,15 +485,10 @@ func apiMakeOrders() {
 			//}
 			cntzak = cntzak - (merch.Balance - merch.Vitrina)
 			//если указан максимальный баланс, то добиваем до него
-			if merch.MaxBalance > 0 {
-				if merch.Balance+cntzak < merch.MaxBalance {
-					cntzak = merch.MaxBalance - merch.Balance
-				}
-			} else {
-				if merch.MinBalance > 0 && merch.Balance < merch.MinBalance {
-					if cntzak < merch.MinBalance-merch.Balance {
-						cntzak = merch.MinBalance - merch.Balance
-					}
+
+			if merch.MinBalance > 0 && merch.Balance < merch.MinBalance {
+				if cntzak < merch.MinBalance-merch.Balance {
+					cntzak = merch.MinBalance - merch.Balance
 				}
 			}
 			//но не более maxbalance
