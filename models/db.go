@@ -1072,7 +1072,7 @@ func GetSales(kStore string, kGoods string, p ...string) (*Sales, error) {
 		if err != nil {
 			return s, err
 		}
-		if strings.Contains(gm.tipmov, p3) {
+		if strings.Contains(p3, gm.tipmov) {
 			if gm.udate.Valid {
 				s.Udate = append(s.Udate, gm.udate.Float64)
 			} else {
@@ -1560,9 +1560,9 @@ func GetLastStateNetwork(num int, strmodul string) map[int]string {
 func SaveOper(numdoc string, provider string, uidstore string, uidgoods string, period string, cnt float64, nextper string, delivery string) error {
 	//если заказ уже сделан то пропускаем и не пишем
 	//needwrite := true
-	cents, err := dbGetFVal("Select cnt from oper where provider=$1 and uidStore=$2 and uidGoods=$3 and delivery>=$4", provider, uidstore, uidgoods, period)
+	cents, err := dbGetFVal("Select sum(cnt) from oper where provider=$1 and uidStore=$2 and uidGoods=$3 and delivery>=$4", provider, uidstore, uidgoods, period)
 	if err == nil {
-		cnt = cents - cnt
+		cnt = cnt - cents
 	}
 	//заказ д.б. больше нуля
 	if cnt > 0 {

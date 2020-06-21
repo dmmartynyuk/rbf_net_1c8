@@ -35,7 +35,7 @@
 		<option value="{{$el.KeyStore}}">{{$el.Name}}</option>	
 		{{end}}
 		</select>
-		<button class="btn" id="makeop" data-href="">Расчитать »</button>
+		<button class="btn" id="makeop" data-href="/api/makeorders/?start=ok">Расчитать »</button>
 </p>
 </div>
 <div class="col-md-4">
@@ -68,10 +68,17 @@ $(document).ready(function(){
 	  if(val !=""){
 		href=href+"&store="+val
 		$("#makeop").data("href",href);
-	}
+	  }
     });
 	$("#makeop").on("click",function(){
 		var url=$("#makeop").data("href");
+		var val = $("#uidstores").children("option:selected").val();
+		if(val==""){
+		  var r = confirm("Вы действительно хотите запустить расчет для всех складов?");
+		  if (r != true) {
+			return;
+		  } 
+		}
 		$.ajax({
 				type: "POST",
 				url: url
