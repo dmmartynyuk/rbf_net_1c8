@@ -21,7 +21,7 @@ import (
 )
 
 //Version версия программы
-const Version = "0.2.12"
+const Version = "0.2.14"
 
 //Mcalc флаг работы функции calculate
 type Mcalc struct {
@@ -1353,9 +1353,8 @@ func predictPage(c *gin.Context) {
 			mx[4] = strings.ToUpper(matrix[1][10].(string))                  //abc
 			mx[5] = strconv.FormatFloat(matrix[1][12].(float64), 'f', 4, 64) //demand
 		} else {
-			mx[6] = "В базе нет записи для " + goodstext
+			mx[6] = "Для склада в матрице товаров нет записи для " + goodstext
 		}
-		hdata["Matrix"] = mx
 
 		datasel, _ := models.GetSales(uidstore, uidgoods, per1, per2, "SM")
 		datapredict, _ := models.GetPredict(uidstore, uidgoods, per1, per2)
@@ -1389,7 +1388,11 @@ func predictPage(c *gin.Context) {
 				GraphPeriods[gr.Period] = gr
 			}
 		}
+		if len(mx[5]) == 0 {
+			mx[5] = strconv.FormatFloat(datapredict[0].Demand, 'f', 4, 64)
+		}
 
+		hdata["Matrix"] = mx
 		hdata["SalesCounts"] = strconv.FormatFloat(scnt, 'f', 2, 64)
 		hdata["SalesProfit"] = strconv.FormatFloat(sprof, 'f', 2, 64)
 		hdata["SalesSumm"] = strconv.FormatFloat(ssum, 'f', 2, 64)
@@ -1472,7 +1475,7 @@ func ordersPage(c *gin.Context) {
 	pgq := c.DefaultQuery("pageIndex", "1")
 	gateq := c.DefaultQuery("pageSize", "15")
 	sortField := c.DefaultQuery("sortField", "period")
-	sortOrder := c.DefaultQuery("sortOrder", "asc")
+	sortOrder := c.DefaultQuery("sortOrder", "desc")
 	pg, ok := strconv.Atoi(pgq)
 	if ok != nil {
 		pg = 1

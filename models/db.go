@@ -977,7 +977,7 @@ func GetContracts(r ...string) ([]Contract, error) {
 
 }
 
-//GetGood возвращает срез мапов из таблицы товаров.
+//GetGood возвращает структуру из таблицы товаров.
 func GetGood(guid string) (*Goods, error) {
 	st := new(Goods)
 	rows, err := DB.Query("select uid, groupname, name, art from goods where uid =$1;", guid)
@@ -1858,4 +1858,30 @@ func GetOptMatrix(uidStores string, uidGoods string, days int) (mg []MatrixGoods
 		mg = append(mg, lmg)
 	}
 	return mg, nil
+}
+
+//GetProviderGoods таблицаноменклатуры поставщика
+func GetProviderGoods(uidProvider string, uidGoods string) (gds map[string]Goods, err error) {
+	var rows *sql.Rows
+	//per := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
+	if len(uidGoods) == 0 {
+		rows, err = DB.Query(`select c.uidgoods, ifnull(c.providerArt,''), ifnull(g.name,'') as name from contractgoods c left join goods g on c.uidgoods=g.uid where c.uidprovider=$1;`, uidProvider)
+	} else {
+		rows, err = DB.Query(`select c.uidgoods, ifnull(c.providerArt,''), ifnull(g.name,'') as name from contractgoods c left join goods g on c.uidgoods=g.uid where c.uidprovider=$1 and c.uidgoods=$2;`, uidProvider, uidGoods)
+	}
+	lg := Goods{}
+	gds = make(map[string]Goods)
+	if err != nil {
+		return gds, err
+		//log.Panic(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		err := rows.Scan(&lg.KeyGoods, &lg.Art, &lg.Name)
+		if err != nil {
+			return gds, err
+		}
+		gds[lg.KeyGoods] = lg
+	}
+	return gds, nil
 }
