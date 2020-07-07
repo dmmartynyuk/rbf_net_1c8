@@ -21,7 +21,7 @@ import (
 )
 
 //Version версия программы
-const Version = "0.3.1"
+const Version = "0.3.2"
 
 //Mcalc флаг работы функции calculate
 type Mcalc struct {

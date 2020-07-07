@@ -511,10 +511,12 @@ func apiMakeOrders(uidstorearg, uidgoodarg string) {
 					if !outlineprovider && (recalc || now.Unix() > next.Unix()) {
 						merch.PredDays, merch.PredDemand = calcnet(uidstore, merch.KeyGoods)
 					}
-					salestat, _ := models.GetSaleStat(uidstore, merch.KeyGoods, delivdays)
-					if salestat["demand"] > 0 {
-						if (merch.PredDemand > 1 || merch.PredDemand < 0) && (merch.PredDemand/salestat["demand"] > 2.0 || merch.PredDemand/salestat["demand"] < 2.0) {
-							merch.PredDemand = salestat["demand"]
+					if !outlineprovider {
+						salestat, _ := models.GetSaleStat(uidstore, merch.KeyGoods, 30)
+						if salestat["demand"] > 0 {
+							if (merch.PredDemand > 1 || merch.PredDemand < 0) && (merch.PredDemand/salestat["demand"] > 2.0 || merch.PredDemand/salestat["demand"] < 2.0) {
+								merch.PredDemand = salestat["demand"]
+							}
 						}
 					}
 					//надо заказать для склада
