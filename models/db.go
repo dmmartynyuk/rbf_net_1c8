@@ -1124,7 +1124,7 @@ func GetSales(kStore string, kGoods string, p ...string) (*Sales, error) {
 	return s, nil
 }
 
-//GetLastSales получает статистику продаж по складу uidStore для товара uidGoods
+//GetLastSales возвращает последнюю продажу\перемещение по складу uidStore для товара uidGoods
 func GetLastSales(uidStore string, uidGoods string) (string, string, error) {
 	//rows, err := DB.Query("select uidGoods from goodsmov where uidStore=$1 and uidGoods=$2 and period=$3;", uidStore, uidGoods, period)
 	rows, err := DB.Query("select g.period, g.tipmov from goodsmov as g left join stores as s on g.uidStore=s.uid WHERE uidStore=$1 and uidGoods=$2 and g.tipmov<>(CASE WHEN s.tip=1 THEN 'M' ELSE 'R' END) order by period DESC limit 1;", uidStore, uidGoods)
@@ -1168,7 +1168,7 @@ func InsRepSales(matr []map[string]interface{}, keyfordel map[string]string) err
 	return InsertTableData("goodsmov", matr, keyfordel)
 }
 
-//GetGoodsFromMatrix возвращает матрицу товаров
+//GetGoodsFromMatrix возвращает массив uid из матрицы товаров
 func GetGoodsFromMatrix(kStore string) (st []string, err error) {
 	//rows, err := DB.Query("select m.uidGoods, ifnull(p.period,'1970-01-01') , ifnull(p.cnt,0), ifnull(p.days,0), ifnull(p.demand,0) from salesmatrix as m left join predict as p on m.uidStore=p.uidStore and m.uidgoods=p.uidgoods where m.uidStore=$1 and inuse=1;", kStore)
 	rows, err := DB.Query("select uidGoods from salesmatrix where uidStore=$1 and inuse=1;", kStore) // uidGoods='ea716efd-52f8-11e5-ad24-3085a9a9595a' and
@@ -1445,7 +1445,7 @@ func GetLastPredict(uidstore string, uidgoods string) (pr *Predict, err error) {
 	pr.Period = "1970-01-01"
 	pr.Days = 0
 	//CREATE UNIQUE INDEX storegoods ON neuro (uidStore, uidGoods)
-	rows, err := DB.Query("select period, cnt, days, demand from predict where uidStore=$1 and uidGoods=$2 order by period DESC;", uidstore, uidgoods)
+	rows, err := DB.Query("select period, cnt, days, demand from predict where uidStore=$1 and uidGoods=$2 order by period DESC limit 1;", uidstore, uidgoods)
 	if err != nil {
 		return pr, err
 		//log.Panic(err)
@@ -1855,6 +1855,149 @@ func GetOptMatrix(uidStores string, uidGoods string, days int) (mg []MatrixGoods
 		} else {
 			lmg.PredPeriod = "1970-01-01"
 		}
+		mg = append(mg, lmg)
+	}
+	return mg, nil
+}
+
+//GetSaleStat статистика по продажам за последние days рабочих дней
+func GetSaleStat(uidStores, uidGoods string, days int) (map[string]float64, error) {
+	var rows *sql.Rows
+	var err error
+	//период рабочих дней todo пока возвращаеем календарные дни
+	wper := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
+	if len(uidStores) == 0 {
+		//только продажи
+		rows, err = DB.Query(`select date(max(z.period0)) as period0,min(z.period0min) as period0min, sum(z.p0) as cnt0, sum(z.c0) as count0,min(z.period1) as period1,sum(z.p1) as cnt1, sum(z.c1) as count1 from (
+			select CASE WHEN date(m.period)<date('`+wper+`') THEN m.period ELSE '1970-01-01' END as period0, 
+			CASE WHEN date(m.period)<date('`+wper+`') THEN m.period ELSE date('now') END as period0min, 
+			CASE WHEN date(m.period)<date('`+wper+`') THEN date('now') ELSE m.period END as period1,
+			CASE WHEN date(m.period)<date('`+wper+`') THEN m.cnt ELSE 0 END as p0, 
+			CASE WHEN date(m.period)<date('`+wper+`') THEN 0 ELSE m.cnt END as p1,
+			CASE WHEN date(m.period)<date('`+wper+`') and m.cnt<>0 THEN 1 ELSE 0 END as c0, 
+			CASE WHEN date(m.period)<date('`+wper+`') and m.cnt<>0 THEN 0 ELSE 1 END as c1 
+			from goodsmov m 
+			where m.tipmov='S' and m.uidgoods=$1) as z;`, uidGoods, wper)
+		//from goodsmov m left JOIN stores s on m.uidStore=s.uid
+		//where m.tipmov<>(CASE WHEN s.tip=1 THEN 'M' ELSE 'R' END)
+	} else {
+		rows, err = DB.Query(`select date(max(z.period0)) as period0 ,date(min(z.period0min)) as period0min,sum(z.p0) as cnt0, sum(z.c0) as count0,date(min(z.period1)) as period1,sum(z.p1) as cnt1, sum(z.c1) as count1 from (
+					select CASE WHEN date(m.period)<date('`+wper+`') THEN m.period ELSE '1970-01-01' END as period0,
+					CASE WHEN date(m.period)<date('`+wper+`') THEN m.period ELSE date('now') END as period0min, 
+					CASE WHEN date(m.period)<date('`+wper+`') THEN date('now') ELSE m.period END as period1,
+					CASE WHEN date(m.period)<date('`+wper+`') THEN m.cnt ELSE 0 END as p0, 
+					CASE WHEN date(m.period)<date('`+wper+`') THEN 0 ELSE m.cnt END as p1,
+					CASE WHEN date(m.period)<date('`+wper+`') and m.cnt<>0 THEN 1 ELSE 0 END as c0, 
+					CASE WHEN date(m.period)<date('`+wper+`') and m.cnt<>0 THEN 0 ELSE 1 END as c1 
+					from goodsmov m 
+					where m.tipmov='S' and m.uidgoods=$1 and uidStore=$2) as z;`, uidGoods, uidStores)
+	}
+	stat := make(map[string]float64)
+	stat["demand"] = 0.0
+	if err != nil {
+		return stat, err
+		//log.Panic(err)
+	}
+	defer rows.Close()
+	var cnt0nf float64
+	var period0nf string
+	var period0minnf string
+	var cntdeals0 int
+	var cnt1nf float64
+	var period1nf string
+	var cntdeals1 int
+
+	if rows.Next() {
+		err := rows.Scan(&period0nf, &period0minnf, &cnt0nf, &cntdeals0, &period1nf, &cnt1nf, &cntdeals1)
+		if err != nil {
+			return stat, err
+		}
+		stat["days"] = float64(days)
+
+		t, err := time.Parse("2006-01-02", period1nf)
+		if err == nil {
+			stat["days"] = float64(time.Now().Sub(t).Hours() / 24)
+		}
+
+		stat["cnt"] = cnt1nf
+
+		stat["deals"] = float64(cntdeals1)
+
+		//если в предидущий период ничего не продавалось то потребность рт первой продажи в этом периоде
+
+		stat["predeals"] = float64(cntdeals0)
+
+		stat["precnt"] = cnt0nf
+
+		t, err = time.Parse("2006-01-02", period0nf)
+		if err == nil {
+			stat["predays"] = float64(time.Now().Sub(t).Hours() / 24)
+		} else {
+			stat["predays"] = float64(days) + 1.0
+		}
+
+		t, err = time.Parse("2006-01-02", period0minnf)
+		if err == nil {
+			stat["predaysfirst"] = float64(time.Now().Sub(t).Hours() / 24)
+		} else {
+			stat["predaysfirst"] = 360.0
+		}
+
+		if stat["predeals"] == 0 {
+			//нет продаж в пред периоде
+			if stat["cnt"] > 0 && stat["days"] > 0 {
+				stat["demand"] = stat["cnt"] / stat["days"]
+			} else {
+				stat["demand"] = 0
+			}
+		} else {
+			//были продажи в пред период и в этот
+			if stat["cnt"] > 0 && days > 0 {
+				stat["demand"] = stat["cnt"] / float64(days)
+			} else {
+				//была продажа только в прошлый
+				stat["demand"] = stat["precnt"] / stat["predaysfirst"]
+			}
+		}
+	}
+	return stat, nil
+}
+
+//GetCenterMatrix собирает матрицу товаров для распределительного склада
+func GetCenterMatrix(uidGoods string, uidProvider string) (mg []MatrixGoods, err error) {
+	var rows *sql.Rows
+	lmg := MatrixGoods{}
+	mg = make([]MatrixGoods, 0, 250)
+	DB.Exec(`DROP TABLE IF EXISTS TEMP.lastbalance;`)
+	//if len(uidGoods) == 0 {
+	Tx, err := DB.Begin()
+	_, err = Tx.Exec(`CREATE TEMP TABLE lastbalance as
+		select g.uidStore, g.uidGoods,g.period, g.balance from goodsmov g where g.id in (
+		select max(m.id) from goodsmov m where m.uidgoods in (select uidgoods from contractgoods where uidprovider=$1) group by m.uidStore, m.uidGoods);`, uidProvider)
+	if err != nil {
+		return mg, err
+	}
+	rows, err = Tx.Query(`SELECT z.uidgoods, sum(z.balance) as balance, sum(z.minbalance) as minbalance, sum(z.maxbalance) as maxbalance, sum(z.vitrina) as vitrina, sum(z.demand) as demand from 
+		(SELECT sm.uidStore, sm.uidgoods, sm.minbalance as minbalance, sm.maxbalance as maxbalance, sm.vitrina as vitrina, IfNULL(l.balance,0) as balance, IfNULL(sm.demand,0) as demand from salesmatrix sm left join TEMP.lastbalance l on sm.uidStore=l.uidStore and sm.uidgoods=l.uidgoods where sm.uidgoods in (select uidgoods from contractgoods where uidprovider=$1) and sm.inuse=1) as z GROUP BY z.uidgoods;`, uidProvider)
+	//}
+	//select m.uidStore, m.uidGoods, CASE WHEN julianday(max(m.period))-julianday(min(m.period)) <= 10 AND julianday('now')-julianday(min(m.period)) <50 THEN 1 WHEN julianday(max(m.period))-julianday(min(m.period)) <= 10 THEN 0 ELSE 1 END minBalance, CASE WHEN julianday(max(m.period))-julianday(min(m.period)) > 10 THEN CAST(0.5+count(m.cnt)*30/(julianday(max(m.period))-julianday(min(m.period))) AS INTEGER) ELSE 0 END as maxBalance from goodsmov m GROUP BY m.uidStore, m.uidGoods;
+
+	if err != nil {
+		return mg, err
+		//log.Panic(err)
+	}
+	defer Tx.Commit()
+	defer Tx.Exec(`DROP TABLE IF EXISTS TEMP.lastbalance;`)
+	defer rows.Close()
+
+	for rows.Next() {
+		err := rows.Scan(&lmg.KeyGoods, &lmg.Balance, &lmg.MinBalance, &lmg.MaxBalance, &lmg.Vitrina, &lmg.PredDemand)
+		if err != nil {
+			return mg, err
+		}
+		lmg.PredPeriod = time.Now().Format("2006-01-02")
+		lmg.PredDays = 30
+		lmg.PredCnt = lmg.PredDemand * 30.0
 		mg = append(mg, lmg)
 	}
 	return mg, nil

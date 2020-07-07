@@ -21,7 +21,7 @@ import (
 )
 
 //Version версия программы
-const Version = "0.2.14"
+const Version = "0.3.1"
 
 //Mcalc флаг работы функции calculate
 type Mcalc struct {
@@ -372,6 +372,42 @@ func updateContracts(c *gin.Context) {
 	i.Chedord = chedord
 	i.Delivdays = int64(dl)
 	c.JSON(http.StatusOK, i)
+}
+
+//updateContractGoods обновляет номенклатуру поставщиков
+func updateContractGoods(c *gin.Context) {
+	type Goods struct {
+		Uidprovider string `json:"uidprovider" binding:"required"`
+		Uidgoods    string `json:"uidgoods" binding:"required"`
+		ProviderArt string `json:"providerart" binding:"required"`
+	}
+	var sm []Goods
+	// in this case proper binding will be automatically selected
+	if err := c.ShouldBindJSON(&sm); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "error": true, "message": "bad request " + err.Error()})
+		return
+	}
+	/*
+		CREATE TABLE "contractgoods" ("uidprovider"	TEXT,"uidgoods"	TEXT,"providerArt"	TEXT)
+	*/
+	matr := make([]map[string]interface{}, 0, len(sm))
+	for _, v := range sm {
+		m := make(map[string]interface{})
+		m["uidprovider"] = v.Uidprovider
+		m["uidgoods"] = v.Uidgoods
+		m["providerart"] = v.ProviderArt
+		matr = append(matr, m)
+	}
+	w := make(map[string]string)
+	models.DbLog("beg. начало обновления товаров в базу "+time.Now().Format("2006-01-02T15:04:05"), "updateContractGoods", time.Now().UTC().UnixNano())
+	err := models.InsertTableData("contractgoods", matr, w)
+	if err != nil {
+		models.DbLog("err. ошибка обновления товаров в базу "+err.Error()+" "+time.Now().Format("2006-01-02T15:04:05"), "updateContractGoods", time.Now().UTC().UnixNano())
+		c.JSON(http.StatusNotAcceptable, gin.H{"status": http.StatusNotAcceptable, "error": true, "message": err.Error()})
+		return
+	}
+	models.DbLog("end. конец обновления товаров в базу "+time.Now().Format("2006-01-02T15:04:05"), "updateContractGoods", time.Now().UTC().UnixNano())
+	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "ok"})
 }
 
 //fetchAllSalesmatrix выводит матрицу
@@ -1636,6 +1672,7 @@ func main() {
 
 		api.GET("contracts/", fetchAllContracts)
 		api.PUT("contracts/", updateContracts)
+		api.POST("contractgoods/", updateContractGoods)
 
 		api.GET("salesmatrix/", fetchAllSalesmatrix)
 		api.PUT("salesmatrix/", updateSalesmatrix)

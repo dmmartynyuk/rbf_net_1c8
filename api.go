@@ -73,8 +73,8 @@ func calcnet(kStore string, kGoods string) (retNext int, retDemand float64) {
 			goods, err = models.GetAllGoodsFromMatrix(uidstore, kGoods)
 		} else {
 			goods, err = models.GetOptMatrix(uidstore, kGoods, MAXSALES)
-			//для оптового склада нет продаж, только движения
-			tipSales = "M"
+			//для оптового склада и продажи, и движения
+			tipSales = "SM"
 		}
 		if err != nil {
 			models.DbLog("calc. Ошибка чтения  матрицы магазина "+store.Name+" "+err.Error(), "calculate", time.Now().UTC().UnixNano())
@@ -92,20 +92,21 @@ func calcnet(kStore string, kGoods string) (retNext int, retDemand float64) {
 			lkc = KC
 
 			//надо ли пересчистать статистику?
-			recalc := false
-			if merch.PredDays == 0 || (merch.PredDays > 0 && merch.PredDemand > (merch.PredCnt/float64(merch.PredDays))*20) {
-				//ошибка сети, пересчитаем
-				recalc = true
-				lkc++
-			}
-			//если прогноз делался не так давно, то возвращаем результаты последнего прогноза
-			lp, err := time.Parse("2006-01-02", merch.PredPeriod)
-			if !recalc && lp.AddDate(0, 0, (int)(merch.PredDays/2)).Unix() >= time.Now().Unix() {
-				retNext = merch.PredDays
-				retDemand = merch.PredDemand
-				continue
-			}
-
+			/*
+				recalc := false
+				if merch.PredDays == 0 || (merch.PredDays > 0 && merch.PredDemand > (merch.PredCnt/float64(merch.PredDays))*20) {
+					//ошибка сети, пересчитаем
+					recalc = true
+					lkc++
+				}
+				//если прогноз делался не так давно, то возвращаем результаты последнего прогноза
+				lp, err := time.Parse("2006-01-02", merch.PredPeriod)
+				if !recalc && lp.AddDate(0, 0, (int)(merch.PredDays/2)).Unix() >= time.Now().Unix() {
+					retNext = merch.PredDays
+					retDemand = merch.PredDemand
+					continue
+				}
+			*/
 			predict[0] = 0.0
 			predict[1] = 0.0
 			sales, err = models.GetSales(uidstore, merch.KeyGoods, time.Now().AddDate(0, 0, -MAXSALES).Format("2006-01-02"), time.Now().Format("2006-01-02"), tipSales)
@@ -327,7 +328,7 @@ func calcnet(kStore string, kGoods string) (retNext int, retDemand float64) {
 			if pd < 6 {
 				pd = int(meanpd + 3*sigmapd)
 			} else if pd > 1000 {
-				//еслт очень мало данных
+				//если очень мало данных
 				pd = nextdeal
 			}
 
@@ -429,32 +430,35 @@ func apiMakeOrders(uidstorearg, uidgoodarg string) {
 				} else {
 					ordersnum = tipmov + strconv.Itoa(now.YearDay()) + strconv.Itoa(numzak)
 				}
-				if store.Tip > 0 {
-					//читаем матрицу, заказы делаем только по матрице
-					goods, err = models.GetAllGoodsFromMatrix(uidstore, uidgoodarg)
-				} else {
-					goods, err = models.GetOptMatrix(uidstore, uidgoodarg, MAXSALES)
-				}
-				if err != nil {
-					models.DbLog("makeOrders. Ошибка чтения  матрицы магазина "+store.Name+" "+err.Error(), "makeOrders", time.Now().UTC().UnixNano())
-					return
-				}
 				//если поставщик внешний, то у поставщика заказываем только по contractgoods ноиенклатуре поставщика
 				isstore, err := models.GetMagNames(0, provider)
-				if err != nil {
-					models.DbLog("makeOrders. Ошибка чтения склада для поставщика "+err.Error(), "makeOrders", time.Now().UTC().UnixNano())
-				}
-				datedelivdays := now.AddDate(0, 0, delivdays+1).Format("2006-01-02")
-				if delivdays < MINDAYSORD {
-					delivdays = MINDAYSORD
-				}
-				var provgoods map[string]models.Goods
+				//var provgoods map[string]models.Goods
 				var outlineprovider bool = false
 				if len(isstore) == 0 {
 					//внешний поставщик
 					outlineprovider = true
 					delivdays = contract.Delivdays
-					provgoods, err = models.GetProviderGoods(provider, uidgoodarg)
+					store.Tip = 9
+					//provgoods, err = models.GetProviderGoods(provider, uidgoodarg)
+				}
+				switch store.Tip {
+				case 1:
+					//читаем матрицу, заказы делаем только по матрице
+					goods, err = models.GetAllGoodsFromMatrix(uidstore, uidgoodarg)
+				case 0:
+					goods, err = models.GetOptMatrix(uidstore, uidgoodarg, MAXSALES)
+				case 9:
+					goods, err = models.GetCenterMatrix(uidgoodarg, provider)
+				}
+
+				if err != nil {
+					models.DbLog("makeOrders. Ошибка чтения  матрицы магазина "+store.Name+" "+err.Error(), "makeOrders", time.Now().UTC().UnixNano())
+					return
+				}
+
+				datedelivdays := now.AddDate(0, 0, delivdays+1).Format("2006-01-02")
+				if delivdays < MINDAYSORD {
+					delivdays = MINDAYSORD
 				}
 				for _, merch := range goods {
 					if Fop.Val() < 0 {
@@ -465,19 +469,22 @@ func apiMakeOrders(uidstorearg, uidgoodarg string) {
 						return
 					}
 					//если внешний поставщик, то есть ли этот товар у него?
-					if outlineprovider {
-						_, ok := provgoods[merch.KeyGoods]
-						if !ok {
-							//товара нет, следующий
-							continue
+					/*
+						if outlineprovider {
+							_, ok := provgoods[merch.KeyGoods]
+							if !ok {
+								//товара нет, следующий
+								continue
+							}
 						}
-					}
+					*/
 					/*
 						lp, err := models.GetLastPredict(uidstore, merch.KeyGoods)
 						if err != nil {
 							models.DbLog("makeOrders. Ошибка чтения таблицы предсказаний "+err.Error(), "makeOrders", time.Now().UTC().UnixNano())
 							return
-						}*/
+						}
+					*/
 					//если товар заказан уже то не заказываем
 					//это условие проверим при записи в заказ
 					//если остаток меньше чем минимум в матрице то доставляем до минималки
@@ -495,12 +502,20 @@ func apiMakeOrders(uidstorearg, uidgoodarg string) {
 					next := lper.AddDate(0, 0, merch.PredDays)
 					//надо ли пересчистать статистику?
 					recalc := false
-					if merch.PredDays == 0 || (merch.PredDays > 0 && merch.PredDemand > (merch.PredCnt/float64(merch.PredDays))*20) {
+					if merch.PredDays == 0 || (merch.PredDays > 0 && merch.PredDemand > (merch.PredCnt/float64(merch.PredDays))*10) {
 						//ошибка сети, пересчитаем
 						recalc = true
 					}
-					if recalc || now.Unix() > next.Unix() {
+					//для поставки на центральный склад статистика сборная по всем магазинам
+					//уже собрана в goods = models.GetCenterMatrix
+					if !outlineprovider && (recalc || now.Unix() > next.Unix()) {
 						merch.PredDays, merch.PredDemand = calcnet(uidstore, merch.KeyGoods)
+					}
+					salestat, _ := models.GetSaleStat(uidstore, merch.KeyGoods, delivdays)
+					if salestat["demand"] > 0 {
+						if (merch.PredDemand > 1 || merch.PredDemand < 0) && (merch.PredDemand/salestat["demand"] > 2.0 || merch.PredDemand/salestat["demand"] < 2.0) {
+							merch.PredDemand = salestat["demand"]
+						}
 					}
 					//надо заказать для склада
 					cntzak := float64(delivdays) * merch.PredDemand
