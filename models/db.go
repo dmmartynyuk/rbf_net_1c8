@@ -500,7 +500,7 @@ func GetTable(tname string, page int, gate int, cond string) (int, string, []map
 		recs = "select count(*) from goods " + where + ";"
 	case "contracts":
 		//s = "select ROWID, provider,recipient,chedord,cheddeliv,delivdays from contracts" + where + limit + ";"
-		s = "select c.ROWID, c.provider as provider,c.recipient as recipient, c.providername as providername, s.name as recname,c.chedord as chedord,c.delivdays as delivdays from contracts as c left join stores as s on c.recipient=s.uid" + where + limit + ";"
+		s = "select c.ROWID, c.provider as provider,c.recipient as recipient, c.providername as providername, s.name as recname,c.chedord as chedord,c.delivdays as delivdays from contracts as c left join stores as s on c.recipient=s.uid" + where + " ORDER BY c.providername, s.name " + limit + ";"
 		recs = "select count(c.ROWID) from contracts as c left join stores as s on c.recipient=s.uid" + where + ";"
 	case "contactgoods":
 		s = "select c.ROWID, c.uidprovider,c.uidgoods as uid,s.name as goodsname, s.art as art, c.providerArt as providerart from contractgoods as c left join goods as s on c.uidgoods=s.uid" + where + " order by s.art " + limit + ";"
@@ -1589,14 +1589,37 @@ func GetLastNumZakaz(period string) int {
 }
 
 //GetZakaz получает данные заказов
-func GetZakaz(num string, page int, gate int, sortfield string, sortorder string) (int, []Zakaz, error) {
+func GetZakaz(num string, page int, gate int, sortfield string, sortorder string, filter string) (int, []Zakaz, error) {
 	var zaks = make([]Zakaz, 0)
 	var zg = make([]ZakazGoods, 0)
 	var rows *sql.Rows
 	var err error
 	var recs int = 0
 	var orderby string = ""
-	limit := " limit " + strconv.Itoa(1+gate*(page-1)) + "," + strconv.Itoa(gate)
+	var where string
+	if len(filter) > 0 && len(num) == 0 {
+		s := strings.Split(filter, ":")
+		if strings.Contains(s[0], "period") && len(s) == 2 {
+			if t, ok := time.Parse("2006-01-02", s[1]); ok == nil {
+				where = " where date(o.period)=date('" + t.Format("2006-01-02") + "')"
+			}
+		}
+		if strings.Contains(s[0], "provider") && len(s) == 2 {
+			if len(where) > 0 {
+				where = " and o.provider='" + Escape(s[1]) + "'"
+			} else {
+				where = " where o.provider='" + Escape(s[1]) + "'"
+			}
+		}
+		if strings.Contains(s[0], "recipient") && len(s) == 2 {
+			if len(where) > 0 {
+				where = " and s.uid='" + Escape(s[1]) + "'"
+			} else {
+				where = " where s.uid='" + Escape(s[1]) + "'"
+			}
+		}
+	}
+	limit := " limit " + strconv.Itoa(gate*(page-1)) + "," + strconv.Itoa(gate)
 	if gate == 0 {
 		limit = ""
 	}
@@ -1621,11 +1644,12 @@ func GetZakaz(num string, page int, gate int, sortfield string, sortorder string
 	}
 	//все заказы без строк
 	if num == "" {
-		recs, _ = dbGetIntVal("Select count(distinct NumDoc) FROM oper;")
-		rows, err = DB.Query("Select distinct o.uidStore as uidStore, '' as uidGoods, o.provider as uidprovider, o.period as period, 0 as cnt, '' as nextper, o.NumDoc, ifnull(s.name,'') as sname, '' as gname, '' as art, pr.name as provname FROM oper o left join stores s on o.uidStore=s.uid left join providers as pr on o.provider=pr.uid " + orderby + limit + ";")
+		recs, _ = dbGetIntVal("Select count(distinct NumDoc) FROM oper " + where + ";")
+		rows, err = DB.Query("Select distinct o.uidStore as uidStore, '' as uidGoods, o.provider as uidprovider, o.period as period, 0 as cnt, '' as nextper, o.NumDoc, ifnull(s.name,'') as sname, '' as gname, '' as art, pr.name as provname FROM oper o left join stores s on o.uidStore=s.uid left join providers as pr on o.provider=pr.uid " + where + orderby + limit + ";")
 	} else {
+		//выводим данные по конкретному заказу
 		recs, _ = dbGetIntVal("Select count(*) FROM oper WHERE NumDoc=$1;", num)
-		rows, err = DB.Query("Select o.uidStore as uidStore, o.uidGoods as uidGoods, o.provider as uidprovider, o.period as period, o.cnt, o.nextper, o.NumDoc, ifnull(s.name,'') as sname, ifnull(g.name,'') as gname, ifnull(g.art,'') as art, pr.name as provname FROM oper o left join goods g on o.uidgoods=g.uid left join stores s on o.uidStore=s.uid left join providers as pr on o.provider=pr.uid WHERE o.NumDoc=$1 ORDER BY g.art"+limit+";", num)
+		rows, err = DB.Query("Select o.uidStore as uidStore, o.uidGoods as uidGoods, o.provider as uidprovider, o.period as period, o.cnt, o.delivery, o.NumDoc, ifnull(s.name,'') as sname, ifnull(g.name,'') as gname, ifnull(g.art,'') as art, pr.name as provname FROM oper o left join goods g on o.uidgoods=g.uid left join stores s on o.uidStore=s.uid left join providers as pr on o.provider=pr.uid WHERE o.NumDoc=$1 ORDER BY g.art"+limit+";", num)
 	}
 	if err != nil {
 		return 0, zaks, err

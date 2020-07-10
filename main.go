@@ -21,7 +21,7 @@ import (
 )
 
 //Version версия программы
-const Version = "0.3.2"
+const Version = "0.3.3"
 
 //Mcalc флаг работы функции calculate
 type Mcalc struct {
@@ -1507,6 +1507,7 @@ func ordersPage(c *gin.Context) {
 	providertext := c.DefaultQuery("provider_text", "")
 	store := c.DefaultQuery("store", "")
 	//period := c.DefaultQuery("period", "")
+	filter := c.DefaultQuery("pageFilter", "")
 	numdoc := c.DefaultQuery("numdoc", "")
 	pgq := c.DefaultQuery("pageIndex", "1")
 	gateq := c.DefaultQuery("pageSize", "15")
@@ -1527,9 +1528,29 @@ func ordersPage(c *gin.Context) {
 	hdata["Provider"] = provider
 	hdata["Providertext"] = providertext
 	hdata["Store"] = store
-	//hdata["Period"] = period
+	hdata["PageFilter"] = filter
 	hdata["Numdoc"] = numdoc
-	recs, zakazs, err := models.GetZakaz(numdoc, pg, gate, sortField, sortOrder)
+	type Hselect struct {
+		UID  string
+		Name string
+	}
+	//массив внешних поставщиков
+	_, _, prov, _ := models.GetTable("contracts", 0, 0, "s.tip=0")
+	sel := make([]Hselect, len(prov))
+	for k := 1; k < len(prov); k++ {
+		sel[k-1].UID = prov[k][1].(string)
+		sel[k-1].Name = prov[k][3].(string)
+	}
+	hdata["Providers"] = sel
+	//массив получателей
+	_, _, prov, _ = models.GetTable("contracts", 0, 0, "s.tip=1")
+	sel = make([]Hselect, len(prov))
+	for k := 1; k < len(prov); k++ {
+		sel[k-1].UID = prov[k][2].(string)
+		sel[k-1].Name = prov[k][4].(string)
+	}
+	hdata["Recipients"] = sel
+	recs, zakazs, err := models.GetZakaz(numdoc, pg, gate, sortField, sortOrder, filter)
 	if err != nil {
 		hdata["Error"] = err.Error()
 	}
@@ -1579,7 +1600,7 @@ func getOrder(c *gin.Context) {
 
 	numdoc := c.Param("numdoc")
 
-	recs, zakazs, err := models.GetZakaz(numdoc, 0, 0, "", "")
+	recs, zakazs, err := models.GetZakaz(numdoc, 0, 0, "", "", "")
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"error": err.Error()})
 		return

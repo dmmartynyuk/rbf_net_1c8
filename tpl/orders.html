@@ -2,18 +2,53 @@
 {{define "title"}}Заказы поставщикам{{end}}
 {{define "pagestyle"}}
 <style type="text/css">
-tr.active{
+#calendar2 {
+  width: 100%;
+  font: monospace;
+  line-height: 1.2em;
+  font-size: 15px;
+  text-align: center;
+}
+.caldp{
+cursor: pointer;
+}
+#calendar2 thead tr:last-child {
+  font-size: small;
+  color: rgb(85, 85, 85);
+}
+#calendar2 thead tr:nth-child(1) td:nth-child(2) {
+  color: rgb(50, 50, 50);
+}
+#calendar2 thead tr:nth-child(1) td:nth-child(1):hover, #calendar2 thead tr:nth-child(1) td:nth-child(3):hover {
+  cursor: pointer;
+}
+#calendar2 tbody td {
+  color: rgb(44, 86, 122);
+}
+#calendar2 tbody td:nth-child(n+6), #calendar2 .holiday {
+  color: rgb(231, 140, 92);
+}
+#calendar2 tbody td.today {
+  background: rgb(220, 0, 0);
+  color: #fff;
+}
+#calendar2 tbody td.active {
+  background: rgb(128, 175, 232);
+  color: #fff;
+}
+
+#taborder tr.active{
 	background-color:#c2dcfd;
 }
-th.sort-desc::before{
+#taborder th.sort-desc::before{
 border-width: 5px 5px 0;
 border-color: #009a67 transparent transparent;
 }
-th.sort-asc::before{
+#taborder th.sort-asc::before{
 border-width: 0 5px 5px;
 border-color: transparent transparent #009a67;
 }
-th.sort::before{
+#taborder th.sort::before{
 content: " ";
     display: block;
     float: left;
@@ -29,18 +64,37 @@ cursor:pointer;
 {{define "content"}}
 <div class="container-fluid">
 	<div class="row">
-	<!--
-        <div class="col-md-2 d-none d-md-block bg-light sidebar">
+	
+        <div class="col-md-2 d-none d-md-block bg-light sidebar mt-3">
           <div class="sidebar-sticky">
-            <ul class="nav flex-column">
-              <li class="nav-item">
-                <a id="stores" class="nav-link d-flex active"  href="#" data-sel="none"><i class="zmdi zmdi-account"></i><span class="col-md-12">Продажи</span><i class="tabnav"></i></a>
-              </li>
-            </ul>          
+            <table id="calendar2">
+			  <thead>
+				<tr><td>‹<td colspan="5"><td>›
+				<tr><td>Пн<td>Вт<td>Ср<td>Чт<td>Пт<td>Сб<td>Вс
+			  <tbody>
+			</table> 
+			<div>
+			<h5>Поставщик</h5>
+			<select class="form-control basicAutoSelect" id="uidproviders" name="uidproviders" placeholder="Поставщик...">
+			<option value="" selected>Поставщик...</option>
+			{{range $index, $el := .Providers}}
+			<option value="{{$el.UID}}">{{$el.Name}}</option>	
+			{{end}}
+			</select>
+			</div>
+			<div>
+			<h5>Получатель</h5>
+			<select class="form-control basicAutoSelect" id="uidrecipients" name="uidrecipients" placeholder="Получатель...">
+			<option value="" selected>Получатель...</option>
+			{{range $index, $el := .Recipients}}
+			<option value="{{$el.UID}}">{{$el.Name}}</option>	
+			{{end}}
+			</select>
+			</div>
           </div>
         </div>
--->
-        <main role="main" class="col-md-12 ml-sm-auto col-lg-10 pt-3 px-4">
+
+        <main role="main" class="col-md-10 ml-sm-auto col-lg-10 pt-3 px-4">
 		{{if .Error}}
 		<div class="alert alert-danger" role="alert">
 		{{.Error}}
@@ -52,6 +106,7 @@ cursor:pointer;
 			<input id="pagesize" type="hidden" style="display:none;" value="{{.PageSize}}">
 			<input id="sortfield" type="hidden" style="display:none;" value="{{.SortField}}">
 			<input id="sortorder" type="hidden" style="display:none;" value="{{.SortOrder}}">
+			<input id="pagefilter" type="hidden" style="display:none;" value="{{.PageFilter}}">
 			<table class="table table-hover table-sm" id="taborder">
 			  <thead>
 				<tr>
@@ -102,6 +157,9 @@ cursor:pointer;
 		</div>
 		<hr />
 		<h4>Данные заказа</h4>
+			<div class="btn-group mr-2">
+                <button class="btn btn-sm btn-outline-secondary" onclick="return exportToCSV();">Выгрузить таблицу</button>
+            </div>
 			<div id="itemsheader">
 			<p><strong>Дата заказа:</strong>&nbsp;<span class="blockquote" id="period"></span></p>
 			<div class="row">
@@ -122,11 +180,12 @@ cursor:pointer;
 {{define "jscript"}}
 <script src="/assets/js/bootstrap-autocomplete.min.js"></script>
 <script type="text/javascript">
-
-function exportToCSV(typ) {
+var Ordertab=[];
+var DocNum="";
+function exportToCSV() {
     var obj;
-    var fn="{{.Tabname}}.csv";
-	obj=gtab.datachart;
+	var fn=DocNum+".csv";
+	obj=Ordertab;
     if (!obj.length) {
 		return;
 	}
@@ -201,11 +260,50 @@ function getAllUrlParams(url) {
       }
       return obj;
 }
+function Calendar2(id, year, mon, activedate) {
+	var darr=activedate.split("-");
+	var Dlast = new Date(year,mon+1,0).getDate(),
+    D = new Date(year,mon,Dlast),
+    DNlast = new Date(D.getFullYear(),D.getMonth(),Dlast).getDay(),
+    DNfirst = new Date(D.getFullYear(),D.getMonth(),1).getDay(),
+    calendar = '<tr>',
+    month=["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
+	var strmon=( (1+mon)<10 ? '0'+(1+mon) : (1+mon))
+	if (DNfirst != 0) {
+	  for(var  i = 1; i < DNfirst; i++) calendar += '<td></td>';
+	}else{
+	  for(var  i = 0; i < 6; i++) calendar += '<td></td>';
+	}
+	for(var  i = 1; i <= Dlast; i++) {
+		var classactive="";
+		if (darr.length>1 && i == parseInt(darr[2],10) && year == parseInt(darr[0],10) && 1+mon==parseInt(darr[1],10)){
+			classactive=" active";
+		}
+	  if (i == new Date().getDate() && D.getFullYear() == new Date().getFullYear() && D.getMonth() == new Date().getMonth()) {
+		calendar += '<td class="today'+classactive+' caldp" data-d="'+year+'-'+strmon+'-'+(i<10 ? '0'+i : i)+'">' + i+'</td>';
+	  }else{
+		calendar += '<td class="caldp'+classactive+'" data-d="'+year+'-'+ strmon+'-'+(i<10 ? '0'+i : i)+'">' + i+'</td>';
+	  }
+	  if (new Date(D.getFullYear(),D.getMonth(),i).getDay() == 0) {
+		calendar += '</tr><tr>';
+	  }
+	}
+	for(var  i = DNlast; i < 7; i++) calendar += '<td>&nbsp;';
+	document.querySelector('#'+id+' tbody').innerHTML = calendar;
+	document.querySelector('#'+id+' thead td:nth-child(2)').innerHTML = month[D.getMonth()] +' '+ D.getFullYear();
+	document.querySelector('#'+id+' thead td:nth-child(2)').dataset.month = D.getMonth();
+	document.querySelector('#'+id+' thead td:nth-child(2)').dataset.year = D.getFullYear();
+	if (document.querySelectorAll('#'+id+' tbody tr').length < 6) {  // чтобы при перелистывании месяцев не "подпрыгивала" вся страница, добавляется ряд пустых клеток. Итог: всегда 6 строк для цифр
+		document.querySelector('#'+id+' tbody').innerHTML += '<tr><td>&nbsp;<td>&nbsp;<td>&nbsp;<td>&nbsp;<td>&nbsp;<td>&nbsp;<td>&nbsp;';
+	}
+}
 $(document).ready(function(){
   $('#taborder').on('click', '.rowtab', function(){
     var doc=$(this).find('.itemdoc').text();
+	DocNum=doc;
 	$.get( "/api/getorder/"+doc).done(function( data ) {
 		var RWS=25;
+		Ordertab=[["НомерСтр","Артикул","Наименование","Количество"]];
 		//itemsheader
 		$("#period").text(data.orders[0].period);
 		$("#recipient").text(data.orders[0].recipientname.replace(/\\/g,""));
@@ -223,7 +321,8 @@ $(document).ready(function(){
 			if(gname.length==0){
 			 gname=items[i].uid;
 			} 
-			  str+='<tr scope="row"><td>'+snum+'</td><td data-uid="'+items[i].uid+'"><a href="/sales?uidstores='+data.orders[0].recipientuid+'&uidgoods='+items[i].uid+'&period=3&uidstores_text='+data.orders[0].recipientname.replace(/"/g,"\'")+'&uidgoods_text=('+items[i].art+") "+items[i].name.replace(/"/g,"\'")+'" target="_blank">'+items[i].art+'</a></td><td>'+gname+'</td><td>'+items[i].cnt+'</td></tr>'
+			str+='<tr scope="row"><td>'+snum+'</td><td data-uid="'+items[i].uid+'"><a href="/sales?uidstores='+data.orders[0].recipientuid+'&uidgoods='+items[i].uid+'&period=3&uidstores_text='+data.orders[0].recipientname.replace(/"/g,"\'")+'&uidgoods_text=('+items[i].art+") "+items[i].name.replace(/"/g,"\'")+'" target="_blank">'+items[i].art+'</a></td><td>'+gname+'</td><td>'+items[i].cnt+'</td></tr>'
+			Ordertab.push([snum, items[i].art,gname,items[i].cnt]);
 		}
 		str+='</tbody>';
 		table.innerHTML=str
@@ -261,6 +360,67 @@ $(document).ready(function(){
 	var url="/orders?pageIndex="+pgi+"&pageSize="+pgs+"&sortField="+sf+"&sortOrder="+asc;
 	window.location.href=url;
   });
+  $("#uidproviders").on("change",function(){
+	var filt = $(this).children("option:selected").val();
+	so=$("#sortorder").val();
+	sf=$("#sortfield").val();
+	pgs=$("#pagesize").val();
+	if(filt != ""){ filt="pageFilter=provider:"+filt;}
+	if(sf != ""){ sf="&sortField="+sf;}
+	if(so != ""){ so="&sortOrder="+so;}
+	if(pgs != ""){ pgs="&pageSize="+pgs;}
+	var url="/orders?"+filt+pgs+sf+so;
+	window.location.href=url;
+  });
+  $("#uidrecipients").on("change",function(){
+	var filt = $(this).children("option:selected").val();
+	so=$("#sortorder").val();
+	sf=$("#sortfield").val();
+	pgs=$("#pagesize").val();
+	if(filt != ""){ filt="pageFilter=recipient:"+filt;}
+	if(sf != ""){ sf="&sortField="+sf;}
+	if(so != ""){ so="&sortOrder="+so;}
+	if(pgs != ""){ pgs="&pageSize="+pgs;}
+	var url="/orders?"+filt+pgs+sf+so;
+	window.location.href=url;
+  });
+  var filter=$("#pagefilter").val();
+  var activdate="";
+  filtarr=filter.split(":");
+  if (filtarr[0]=="period"){
+	activdate=filtarr[1];
+  }	
+  if (filtarr[0]=="recipient"){
+	$('#uidrecipients option[value="'+filtarr[1]+'"]').prop('selected', true);
+  }	
+  if (filtarr[0]=="provider"){
+	$('#uidproviders option[value="'+filtarr[1]+'"]').prop('selected', true);
+  }
+  Calendar2("calendar2", new Date().getFullYear(), new Date().getMonth(),activdate);
+	// переключатель минус месяц
+	document.querySelector('#calendar2 thead tr:nth-child(1) td:nth-child(1)').onclick = function() {
+	  Calendar2("calendar2", document.querySelector('#calendar2 thead td:nth-child(2)').dataset.year, parseFloat(document.querySelector('#calendar2 thead td:nth-child(2)').dataset.month)-1);
+	}
+	// переключатель плюс месяц
+	document.querySelector('#calendar2 thead tr:nth-child(1) td:nth-child(3)').onclick = function() {
+	  Calendar2("calendar2", document.querySelector('#calendar2 thead td:nth-child(2)').dataset.year, parseFloat(document.querySelector('#calendar2 thead td:nth-child(2)').dataset.month)+1);
+	}
+	$('#calendar2 .caldp').on("click", function(){
+		urlparams=getAllUrlParams(window.location.href);
+		var ps=""; var sf="";var so="";
+		if (urlparams.hasOwnProperty('pagesize')) {
+			ps="&pageSize="+urlparams.pagesize;
+		}
+		if (urlparams.hasOwnProperty('sortfield')) {
+			sf="&sortField="+urlparams.sortfield;
+		}
+		if (urlparams.hasOwnProperty('sortorder')) {
+			so="&sortOrder="+urlparams.sortorder;
+		}
+		d=$(this).data("d");
+		var url="/orders?pageFilter=period:"+d+ps+sf+so;
+		window.location.href=url;
+	});
 });
 </script>
 {{end}}
