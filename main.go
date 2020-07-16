@@ -21,7 +21,7 @@ import (
 )
 
 //Version версия программы
-const Version = "0.3.3"
+const Version = "0.3.8"
 
 //Mcalc флаг работы функции calculate
 type Mcalc struct {
@@ -1364,7 +1364,7 @@ func predictPage(c *gin.Context) {
 	per1d := time.Now().AddDate(0, -per1i, 0)
 	per1date := time.Date(per1d.Year(), per1d.Month(), 1, 0, 0, 0, 0, time.Now().Location())
 	per1 := per1date.Format("2006-01-02")
-
+	//для списка фильтра
 	_, _, hdata["Stores"], _ = models.GetTable("stores", 0, 0, "tip>=0")
 
 	hdata["SalesCounts"] = 0
@@ -1375,25 +1375,56 @@ func predictPage(c *gin.Context) {
 	dataprof := "['дата','выручка','прибыль']"
 	datatab := "['дата','продано','остаток','прогноз остатка']"
 	if len(uidstore) > 0 && len(uidgoods) > 0 {
-		cond := "uidStore='" + models.Escape(uidstore) + "' and uidGoods='" + models.Escape(uidgoods) + "'"
+		var lastCenterbalance float64
+		cond := "s.uidStore='" + models.Escape(uidstore) + "' and s.uidGoods='" + models.Escape(uidgoods) + "'"
+		stores, err := models.GetMagNames(0, uidstore)
+		if len(stores) > 0 && stores[0].Tip == 0 { //распределительный склад
+			uidstore = "" //продажи и предикт суммируется
+			cond = " st.tip>0 and s.uidgoods='" + models.Escape(uidgoods) + "'"
+			_, lastCenterbalance, _ = models.GetLastBalance(stores[0].KeyStore, uidgoods)
+		}
+		datasel, _ := models.GetSales(uidstore, uidgoods, per1, per2, "SMRb") //для перемещений только баланс
+		//добавим баланс распределительного склада, если смотрим для него статистику
+		if len(datasel.Balance) > 0 && lastCenterbalance > 0 {
+			datasel.Balance[len(datasel.Balance)-1] = datasel.Balance[len(datasel.Balance)-1] + lastCenterbalance
+		}
+		datapredict, _ := models.GetPredict(uidstore, uidgoods, per1, per2)
+
 		//s.ROWID,s.uidStore,st.name as storename,s.uidGoods as uidGoods,g.groupname as groupname, g.name as goodsname, g.Art as art,s.minbalance as minbalance,s.maxbalance as maxbalance,s.inuse as inuse,s.abc as abc
 		k, _, matrix, err := models.GetTable("salesmatrix", 0, 0, cond)
 		if err != nil {
 			mx[6] = err.Error()
 		}
-		if k > 0 {
+		switch {
+		case k < 1:
+			mx[6] = "Для склада в матрице товаров нет записи для " + goodstext
+		case k == 1:
 			mx[0] = strconv.FormatFloat(matrix[1][7].(float64), 'f', 2, 64)  //minbalance
 			mx[1] = strconv.FormatFloat(matrix[1][8].(float64), 'f', 2, 64)  //maxbalance
 			mx[2] = strconv.FormatInt(matrix[1][11].(int64), 10)             //step
 			mx[3] = strconv.FormatInt(matrix[1][9].(int64), 10)              //inuse
 			mx[4] = strings.ToUpper(matrix[1][10].(string))                  //abc
 			mx[5] = strconv.FormatFloat(matrix[1][12].(float64), 'f', 4, 64) //demand
-		} else {
-			mx[6] = "Для склада в матрице товаров нет записи для " + goodstext
+		case k > 1:
+			//uidStore="" сумма по всем складам
+			var m0, m1, m5 float64
+			var m2 int64
+			for i := 1; i < len(matrix); i++ {
+				m0 = m0 + matrix[i][7].(float64) //minbalance
+				m1 = m1 + matrix[i][8].(float64) //maxbalance
+				if m2 > matrix[i][11].(int64) {
+					m2 = matrix[i][11].(int64) //step
+				}
+				m5 = m5 + matrix[i][12].(float64) //demand
+			}
+			mx[0] = strconv.FormatFloat(m0, 'f', 2, 64)         //minbalance
+			mx[1] = strconv.FormatFloat(m1, 'f', 2, 64)         //maxbalance
+			mx[2] = strconv.FormatInt(m2, 10)                   //step
+			mx[3] = strconv.FormatInt(matrix[1][9].(int64), 10) //inuse
+			mx[4] = strings.ToUpper(matrix[1][10].(string))     //abc
+			mx[5] = strconv.FormatFloat(m5, 'f', 4, 64)         //demand
 		}
 
-		datasel, _ := models.GetSales(uidstore, uidgoods, per1, per2, "SM")
-		datapredict, _ := models.GetPredict(uidstore, uidgoods, per1, per2)
 		scnt := 0.0
 		ssum := 0.0
 		sprof := 0.0
@@ -1424,7 +1455,7 @@ func predictPage(c *gin.Context) {
 				GraphPeriods[gr.Period] = gr
 			}
 		}
-		if len(mx[5]) == 0 {
+		if len(mx[5]) == 0 && len(datapredict) > 0 {
 			mx[5] = strconv.FormatFloat(datapredict[0].Demand, 'f', 4, 64)
 		}
 
@@ -1543,7 +1574,7 @@ func ordersPage(c *gin.Context) {
 	}
 	hdata["Providers"] = sel
 	//массив получателей
-	_, _, prov, _ = models.GetTable("contracts", 0, 0, "s.tip=1")
+	_, _, prov, _ = models.GetTable("contracts", 0, 0, "s.tip>=1")
 	sel = make([]Hselect, len(prov))
 	for k := 1; k < len(prov); k++ {
 		sel[k-1].UID = prov[k][2].(string)
