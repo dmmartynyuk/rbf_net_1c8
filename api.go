@@ -182,7 +182,7 @@ func calcnet(kStore string, kGoods string) (retNext int, retDemand float64) {
 			guess[0] = inputs[cnt-1] + 1.0
 			guess[1] = inputs[cnt-1] + 2.0
 			guess[2] = inputs[cnt-1] + 3.0
-			//v3-> привяжем в бесконечности к середине meanpd, чтобы функция не уполхала в бесконечность
+			//v3-> привяжем в бесконечности к середине meanpd, чтобы функция не уползала в бесконечность
 			if cnt < 30 {
 				inputs[cnt] = guess[2] + float64(cnt)
 			} else {
@@ -293,6 +293,9 @@ func calcnet(kStore string, kGoods string) (retNext int, retDemand float64) {
 				mn = mn + demand[k]
 			}
 			demand[cnt] = mn / float64(cnt-1)
+			if statcnt["mean"] > 0 && stat["mean"] > 0 {
+				demand[cnt] = statcnt["mean"] / stat["mean"]
+			}
 			prgper = PROGPER
 			//V1
 			if ver == 1 {
@@ -510,35 +513,28 @@ func apiMakeOrders(uidstorearg, uidgoodarg string) {
 					merch.PredDays, merch.PredDemand = calcnet(uidstore, merch.KeyGoods)
 				}
 				if !outlineprovider {
-					if merch.PredDemand <= 0 || merch.PredDemand > 0.7 {
-						salestat, _ := models.GetSaleStat(uidstore, merch.KeyGoods, DAYSNOSALE)
-						if salestat["demand"] > 0 && (merch.PredDemand/salestat["demand"] > 1.9 || merch.PredDemand/salestat["demand"] < 0.52) {
-							merch.PredDemand = salestat["demand"]
-							if salestat["demand"] < 0.001 || salestat["deals"] == 0 {
-								//надо перевести в категорию F
-								merch.Abc = "F"
-							}
+					//if merch.PredDemand <= 0 || merch.PredDemand > 0.3 {
+					salestat, _ := models.GetSaleStat(uidstore, merch.KeyGoods, DAYSNOSALE)
+					if salestat["demand"] > 0 && (merch.PredDemand/salestat["demand"] > 1.5 || merch.PredDemand/salestat["demand"] < 0.67) {
+						merch.PredDemand = salestat["demand"]
+						if salestat["demand"] < 0.001 || salestat["deals"] == 0 {
+							//надо перевести в категорию F
+							merch.Abc = "F"
 						}
 					}
+					//}
 				} else {
 					//для центрального склада добавим его остаток, в nerch остатки только по матрице
 					_, lb, _ := models.GetLastBalance("", merch.KeyGoods)
 					if lb > 0 {
 						merch.Balance = lb
 					}
-					if merch.PredDemand <= 0 || merch.PredDemand > 5 {
-						salestat, _ := models.GetSaleStat("", merch.KeyGoods, DAYSNOSALE)
-						if salestat["demand"] > 0 && (merch.PredDemand/salestat["demand"] > 1.9 || merch.PredDemand/salestat["demand"] < 0.52) {
-							merch.PredDemand = salestat["demand"]
-						}
+					//if merch.PredDemand <= 0 || merch.PredDemand > 1 {
+					salestat, _ := models.GetSaleStat("", merch.KeyGoods, DAYSNOSALE)
+					if salestat["demand"] > 0 && (merch.PredDemand/salestat["demand"] > 1.3 || merch.PredDemand/salestat["demand"] < 0.77) {
+						merch.PredDemand = salestat["demand"]
 					}
-				}
-				if outlineprovider {
-					//для центрального склада добавим его остаток, в nerch остатки только по матрице
-					_, lb, _ := models.GetLastBalance("", merch.KeyGoods)
-					if lb > 0 {
-						merch.Balance = lb
-					}
+					//}
 				}
 				//надо заказать для склада
 				cntzak := float64(delivdays) * merch.PredDemand

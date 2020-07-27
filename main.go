@@ -21,7 +21,7 @@ import (
 )
 
 //Version версия программы
-const Version = "0.3.8"
+const Version = "0.3.10"
 
 //Mcalc флаг работы функции calculate
 type Mcalc struct {
@@ -60,7 +60,7 @@ func calculate(c *gin.Context) {
 	start := c.DefaultQuery("start", "none")
 	store := c.DefaultQuery("store", "")
 	goods := c.DefaultQuery("goods", "")
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "stop= " + stop + " store=" + store + " goods=" + goods})
+	//c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "stop= " + stop + " store=" + store + " goods=" + goods})
 	if stop != "none" && stop != "" {
 		v, err := strconv.Atoi(stop)
 		if err == nil {
@@ -1339,6 +1339,7 @@ func predictPage(c *gin.Context) {
 		SumPred     float64
 		ProfPred    float64
 		Demand      float64
+		Tab         string
 	}
 
 	GraphPeriods := make(map[string]graph)
@@ -1437,6 +1438,7 @@ func predictPage(c *gin.Context) {
 			gr.Sum = datasel.Summa[k]
 			gr.Prof = datasel.Margin[k] * datasel.Summa[k]
 			gr.Prevdays = datasel.Prevdays[k]
+			gr.Tab = "SM"
 			GraphPeriods[gr.Period] = gr
 			dataprof = dataprof + ",['" + time.Unix(int64(datasel.Udate[k])*86400, 0).Format("2006-01-02") + "'," + strconv.FormatFloat(datasel.Summa[k], 'f', 0, 64) + "," + strconv.FormatFloat(datasel.Margin[k]*datasel.Summa[k], 'f', 2, 64) + "]"
 			scnt = scnt + datasel.Cnt[k]
@@ -1448,10 +1450,12 @@ func predictPage(c *gin.Context) {
 			gr, ok := GraphPeriods[v.Period]
 			if ok {
 				gr.Demand = v.Demand
+				gr.Tab = "SMR"
 				GraphPeriods[v.Period] = gr
 			} else {
 				gr.Period = v.Period
 				gr.Demand = v.Demand
+				gr.Tab = "R"
 				GraphPeriods[gr.Period] = gr
 			}
 		}
@@ -1473,35 +1477,38 @@ func predictPage(c *gin.Context) {
 			perd := per.Format("2006-01-02")
 			gr, ok := GraphPeriods[perd]
 			if ok {
+				//данные от движений
+				if strings.Contains(gr.Tab, "SM") {
+					prevbalance = gr.Balance
+					if gr.Prevdays > 0 { //данные от продаж
+						//gr.CntPred = gr.Prevdays * demand
+						if gr.Cnt > 0 && gr.Sum > 0 {
+							//	gr.SumPred = gr.Sum/gr.Cnt * gr.CntPred
+							prevprice = gr.Sum / gr.Cnt
+						}
+						//gr.SumPred = gr.Sum * gr.CntPred
+						//gr.ProfPred = gr.Margin * gr.SumPred
+						//gr.BalancePred = prevbalance - gr.CntPred
+						if gr.Margin > 0 {
+							prevmargin = gr.Margin
+						}
+						prevdays = 0
+					}
+				}
+				//если есть предидущий прогноз
 				if demand > 0 {
 					gr.CntPred = prevdays * demand
 					gr.SumPred = prevprice * gr.CntPred
 					gr.ProfPred = prevmargin * gr.SumPred
 					gr.BalancePred = prevbalance - gr.CntPred
 				}
-				if gr.Prevdays > 0 { //данные от продаж
-					//gr.CntPred = gr.Prevdays * demand
-					if gr.Cnt > 0 && gr.Sum > 0 {
-						//	gr.SumPred = gr.Sum/gr.Cnt * gr.CntPred
-						prevprice = gr.Sum / gr.Cnt
-					}
-					//gr.SumPred = gr.Sum * gr.CntPred
-					//gr.ProfPred = gr.Margin * gr.SumPred
-					//gr.BalancePred = prevbalance - gr.CntPred
-					prevbalance = gr.Balance
-					if gr.Margin > 0 {
-						prevmargin = gr.Margin
-					}
-					prevdays = 0
-				} else {
-					//данные только от предсказаний
+				if strings.Contains(gr.Tab, "R") {
+					demand = gr.Demand
+					//данные от предсказаний
 					gr.CntPred = prevdays * demand
 					gr.SumPred = prevprice * gr.CntPred
 					gr.ProfPred = prevmargin * gr.SumPred
 					gr.BalancePred = prevbalance - gr.CntPred
-				}
-				if gr.Demand > 0.0 {
-					demand = gr.Demand
 				}
 				prevdays++
 				datatab = datatab + ",['" + gr.Period + "'," + strconv.FormatFloat(gr.Cnt, 'f', 0, 64) + "," + strconv.FormatFloat(gr.Balance, 'f', 0, 64) + "," + strconv.FormatFloat(gr.BalancePred, 'f', 0, 64) + "]"
@@ -1714,7 +1721,7 @@ func main() {
 	router.GET("/orders", ordersPage)
 	api := router.Group("/api/")
 	{
-		api.GET("calc/", calculate)
+		api.POST("calc/", calculate)
 
 		api.GET("stores/", fetchAllStocks)
 		api.PUT("stores/", updateStocks)
