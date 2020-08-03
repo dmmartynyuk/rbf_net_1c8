@@ -481,6 +481,93 @@ func dbGetRow(q string, args ...interface{}) (map[string]interface{}, error) {
 	return nil, nil
 }
 
+func dbGetRows(q string, args ...interface{}) ([]map[string]interface{}, error) {
+	rows, err := DB.Query(q, args...)
+	if err != nil {
+		return nil, err
+		//log.Panic(err)
+	}
+	defer rows.Close()
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, err
+		//panic(err)
+	}
+	ctype, err := rows.ColumnTypes()
+	if err != nil {
+		return nil, err
+		//panic(err)
+	}
+	retrows := make([]map[string]interface{}, 0)
+	lencol := len(columns)
+	for rows.Next() {
+		retrow := make(map[string]interface{})
+		row := make([]interface{}, 0, lencol)
+		//инициализируем row, куда затем считаем строку из таблицы
+		for i := 0; i < lencol; i++ {
+			var current interface{}
+			current = struct{}{}
+			row = append(row, &current)
+		}
+		//читаем таблицу в row
+		if err := rows.Scan(row...); err != nil {
+			return nil, err
+			//panic(err)
+		}
+		for i := 0; i < lencol; i++ {
+			key := columns[i]
+			switch ctype[i].DatabaseTypeName() {
+			//"VARCHAR", "TEXT", "NVARCHAR", "DECIMAL", "BOOL", "INT", "BIGINT"
+			//sqlite^  INTEGER, REAL, TEXT и BLOB NUMERIC
+			case "INT":
+				retrow[key] = 0
+			case "TEXT":
+				retrow[key] = ""
+			case "INTEGER":
+				retrow[key] = 0
+			case "REAL":
+				retrow[key] = 0.0
+			case "NUMERIC":
+				retrow[key] = 0.0
+			case "BOOL":
+				retrow[key] = false
+			case "BLOB":
+				retrow[key] = ""
+			default:
+				retrow[key] = ""
+			}
+			//приводим к интерфейсу
+			val := *(row[i]).(*interface{})
+			if val == nil {
+				retrow[key] = "null"
+				continue
+			}
+			switch val.(type) {
+			case int:
+				retrow[key] = val.(int64)
+			case int64:
+				retrow[key] = val.(int64)
+			case string:
+				retrow[key] = deescstr(val.(string))
+			case time.Time:
+				retrow[key] = val.(time.Time).Format("2006-01-02T15:04:05")
+			case []uint8:
+				retrow[key] = string(val.([]uint8))
+			case float64:
+				retrow[key] = val.(float64)
+			case bool:
+				retrow[key] = val.(bool)
+			default:
+				retrow[key] = "?"
+				//fmt.Printf("unsupport data type '%s' now\n", vType)
+				// TODO remember add other data type
+			}
+		}
+		retrows = append(retrows, retrow)
+	}
+	return retrows, nil
+}
+
 //GetTable вернет количество строк в запросе, []map[int]interface{} где map[0] ключевое поле [0]map имена полей
 func GetTable(tname string, page int, gate int, cond string) (int, string, []map[int]interface{}, error) {
 	var s string
@@ -1613,7 +1700,7 @@ func GetLastStateNetwork(num int, strmodul string) map[int]string {
 func SaveOper(numdoc string, provider string, uidstore string, uidgoods string, period string, cnt float64, nextper string, delivery string) error {
 	//если заказ уже сделан то пропускаем и не пишем
 	//needwrite := true
-	cents, err := dbGetFVal("Select sum(cnt) from oper where provider=$1 and uidStore=$2 and uidGoods=$3 and delivery>=$4", provider, uidstore, uidgoods, period)
+	cents, err := dbGetFVal("Select ifnull(sum(ordered),0) from oper where provider=$1 and uidStore=$2 and uidGoods=$3 and delivery>$4", provider, uidstore, uidgoods, period)
 	if err == nil {
 		cnt = cnt - cents
 	}
@@ -1626,6 +1713,44 @@ func SaveOper(numdoc string, provider string, uidstore string, uidgoods string, 
 		}
 	}
 	return nil
+}
+
+//GetReOrdering получает заказы не перенесенные в 1с
+func GetReOrdering(provider string, uidstore string, period string) ([]string, error) {
+	//если заказ уже сделан то пропускаем и не пишем
+	st := make([]string, 0, 256)
+	//rows, err := dbGetRows("Select uidStore, uidgoods, (cnt-ordered) as need from oper where delivery>=$1 and cnt>ordered and provider=$2 order by uidStore, uidgoods", period, provider)
+	/*
+		if len(uidstore) == 0 {
+			rows, err = dbGetRows(`Select o.uidStore as uidstore, o.uidgoods as uidgoods, (o.cnt-o.ordered) as need, b.balance as balance from oper o
+		join
+		(select uidgoods, balance from goodsmov where id in
+		(select max(g.id) from goodsmov as g WHERE g.uidStore=$1 group by g.uidgoods)
+		and balance>0) as b on o.uidgoods=b.uidgoods
+		where o.delivery>=$2 and o.provider=$3 order by o.uidStore;`, provider, period, provider)
+			if err != nil {
+				return st, err
+			}
+	*/
+	rows, err := dbGetRows(`Select o.uidStore as uidstore, o.uidgoods as uidgoods, (o.cnt-o.ordered) as need, b.balance as balance from oper o 
+	join
+	(select uidgoods, balance from goodsmov where id in 
+	(select max(g.id) from goodsmov as g WHERE g.uidStore=$1 group by g.uidgoods)
+	and balance>0) as b on o.uidgoods=b.uidgoods
+	where o.delivery>=$2 and o.provider=$3 and o.uidStore=$4;`, provider, period, provider, uidstore)
+	if err != nil {
+		return st, err
+	}
+	for _, v := range rows {
+		if v["need"].(float64) > 0 { //надо бы перезаказать, если есть остаток на provider
+			uidgoods, ok := v["uidgoods"].(string)
+			if ok {
+				st = append(st, uidgoods)
+			}
+
+		}
+	}
+	return st, nil
 }
 
 //GetLastNumZakaz вернет последний номер заказа из базы

@@ -457,7 +457,7 @@ func apiMakeOrders(uidstorearg, uidgoodarg string) {
 				return
 			}
 
-			datedelivdays := now.AddDate(0, 0, delivdays+1).Format("2006-01-02")
+			datedelivdays := now.AddDate(0, 0, delivdays).Format("2006-01-02")
 			if delivdays < MINDAYSORD {
 				delivdays = MINDAYSORD
 			}
@@ -469,23 +469,6 @@ func apiMakeOrders(uidstorearg, uidgoodarg string) {
 					log.Printf("stop. завершено по сигналу")
 					return
 				}
-				//если внешний поставщик, то есть ли этот товар у него?
-				/*
-					if outlineprovider {
-						_, ok := provgoods[merch.KeyGoods]
-						if !ok {
-							//товара нет, следующий
-							continue
-						}
-					}
-				*/
-				/*
-					lp, err := models.GetLastPredict(uidstore, merch.KeyGoods)
-					if err != nil {
-						models.DbLog("makeOrders. Ошибка чтения таблицы предсказаний "+err.Error(), "makeOrders", time.Now().UTC().UnixNano())
-						return
-					}
-				*/
 				//если товар заказан уже то не заказываем
 				//это условие проверим при записи в заказ
 				//если остаток меньше чем минимум в матрице то доставляем до минималки
@@ -575,7 +558,37 @@ func apiMakeOrders(uidstorearg, uidgoodarg string) {
 				w["uidGoods"] = merch.KeyGoods
 				models.UpdateMatrix(m, w)
 			} //по товарам
-		} //если стоит в расписании
+		} /*else { //если стоит в расписании
+			//если в расписании нет, то смотрим позиции, котоые были из заказов удалены
+			stores, _ := models.GetMagNames(0, contract.Provider)
+			if len(stores) == 0 {
+				continue
+			}
+			provider := stores[0]
+			if provider.Tip == 0 { //распределительный склад
+				st, _ := models.GetReOrdering(contract.Provider, contract.Recipient, time.Now().Format("2006-01-02"))
+				for _, uidgoods := range st {
+					//делаем дозаказ
+					if Fop.Val() < 0 {
+						//надо завершиться
+						Fop.Set(0)
+						models.DbLog("stop. завершено по сигналу", "makeOrders", time.Now().UTC().UnixNano())
+						log.Printf("stop. завершено по сигналу")
+						return
+					}
+					numzak++
+					var ordersnum string
+					//номер заказа два знака, всего 99 заказов в день
+					if numzak < 10 {
+						ordersnum = "Z" + strconv.Itoa(now.YearDay()) + "0" + strconv.Itoa(numzak)
+					} else {
+						ordersnum = "Z" + strconv.Itoa(now.YearDay()) + strconv.Itoa(numzak)
+					}
+					goods, err = models.GetAllGoodsFromMatrix(contract.Recipient, uidgoods)
+				}
+			}
+		} //если не стоит в расписании
+		*/
 	} //по контрактам
 
 	models.DbLog("end makeOrders. Конец составления заказов", "makeOrders", time.Now().UTC().UnixNano())

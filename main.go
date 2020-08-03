@@ -21,7 +21,7 @@ import (
 )
 
 //Version версия программы
-const Version = "0.3.10"
+const Version = "0.4.4"
 
 //Mcalc флаг работы функции calculate
 type Mcalc struct {
@@ -1008,6 +1008,49 @@ func setstores(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "ok"})
 }
 
+func setordered(c *gin.Context) {
+	type Ordered struct {
+		Provider string  `json:"provider" binding:"required"`
+		Uidstore string  `json:"uidstore" binding:"required"`
+		Uidgoods string  `json:"uidgoods" binding:"required"`
+		Period   string  `json:"period" binding:"required"`
+		Cnt      float64 `json:"cnt" binding:"required"`
+	}
+	var sm []Ordered
+	// in this case proper binding will be automatically selected
+	if err := c.ShouldBindJSON(&sm); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "error": true, "message": "bad request " + err.Error()})
+		return
+	}
+
+	for _, v := range sm {
+		t, err := time.Parse("2006-01-02", v.Period)
+		if err != nil {
+			t, err = time.Parse("2006-01-02T15:04:05", v.Period)
+			if err != nil {
+				continue
+			}
+		}
+		matr := make(map[string]interface{})
+		matr["ordered"] = float64(v.Cnt)
+		cond := make(map[string]string)
+		cond["provider"] = v.Provider
+		cond["uidstore"] = v.Uidstore
+		cond["uidgoods"] = v.Uidgoods
+		cond["period"] = t.Format("2006-01-02")
+		m := make([]map[string]interface{}, 1)
+		m[0] = matr
+		err = models.UpdateTableData("oper", m, cond)
+		if err != nil {
+			models.DbLog("err. ошибка обновления заказов "+err.Error()+" "+time.Now().Format("2006-01-02T15:04:05"), "setordered", time.Now().UTC().UnixNano())
+			c.JSON(http.StatusNotAcceptable, gin.H{"status": http.StatusNotAcceptable, "error": true, "message": err.Error()})
+			return
+		}
+	}
+	models.DbLog("end. конец обновления заказов "+time.Now().Format("2006-01-02T15:04:05"), "setordered", time.Now().UTC().UnixNano())
+	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "ok"})
+}
+
 //стартовая страница
 func startPage(c *gin.Context) {
 	// Вызовем метод HTML из Контекста Gin для обработки шаблона
@@ -1743,6 +1786,7 @@ func main() {
 		api.GET("neuro/:store/:goods", getNeuroData)
 		api.GET("predict/:store/:goods", getPredict)
 		api.POST("setsales/", setSales)
+		api.POST("setordered/", setordered)
 		api.POST("makeorders/", mkorders)
 		api.POST("recalcabc/:store", setABC)
 		api.GET("getorders/", getZakaz)
