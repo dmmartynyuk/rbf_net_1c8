@@ -21,7 +21,7 @@ import (
 )
 
 //Version версия программы
-const Version = "0.4.4"
+const Version = "0.4.6"
 
 //Mcalc флаг работы функции calculate
 type Mcalc struct {
@@ -970,6 +970,44 @@ func setsalesmatrix(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "ok"})
 }
 
+func setbalance(c *gin.Context) {
+	storeuid := c.Param("store")
+	type Sbalance struct {
+		Uidstore   string  `json:"uidstore" binding:"required"`
+		Uidgoods   string  `json:"uidgoods" binding:"required"`
+		Groupgoods string  `json:"groupgoods"`
+		Balance    float64 `json:"balance" binding:"required"`
+	}
+	var sm []Sbalance
+	// in this case proper binding will be automatically selected
+	if err := c.ShouldBindJSON(&sm); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "error": true, "message": "bad request " + err.Error()})
+		return
+	}
+	matrbalance := make([]map[string]interface{}, 0, 256)
+	for _, v := range sm {
+		if storeuid == v.Uidstore {
+			m := make(map[string]interface{})
+			m["uidStore"] = v.Uidstore
+			m["uidGoods"] = v.Uidgoods
+			m["groupGoods"] = v.Groupgoods
+			m["balance"] = v.Balance
+			matrbalance = append(matrbalance, m)
+		}
+	}
+
+	models.DbLog("beg. начало синхронизации баланса товаров "+time.Now().Format("2006-01-02T15:04:05"), "setbalance", time.Now().UTC().UnixNano())
+	if len(matrbalance) > 0 {
+		err := models.UpdateBalance(matrbalance)
+		if err != nil {
+			models.DbLog("err. ошибка синхронизации баланса товаров "+err.Error()+" "+time.Now().Format("2006-01-02T15:04:05"), "setbalance", time.Now().UTC().UnixNano())
+			c.JSON(http.StatusNotAcceptable, gin.H{"status": http.StatusNotAcceptable, "error": true, "message": err.Error()})
+		}
+	}
+	models.DbLog("end. конец обновления матрицы товаров "+time.Now().Format("2006-01-02T15:04:05"), "setbalance", time.Now().UTC().UnixNano())
+	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "ok"})
+}
+
 func setstores(c *gin.Context) {
 	type Stores struct {
 		Uidstore string `json:"uidstore" binding:"required"`
@@ -1468,7 +1506,8 @@ func predictPage(c *gin.Context) {
 			mx[4] = strings.ToUpper(matrix[1][10].(string))     //abc
 			mx[5] = strconv.FormatFloat(m5, 'f', 4, 64)         //demand
 		}
-
+		//если нет движений гуугл ругается.  следовательно заполним начальную точку
+		dataprof = dataprof + ",['" + per1date.Format("2006-01-02") + "',0,0]"
 		scnt := 0.0
 		ssum := 0.0
 		sprof := 0.0
@@ -1516,6 +1555,7 @@ func predictPage(c *gin.Context) {
 		var prevbalance float64 //пред остаток
 		var prevmargin float64
 		var prevprice float64
+		datatab = datatab + ",['" + per1date.Format("2006-01-02") + "',0,0,0]" //point 0/0
 		for per := per1date; per.Unix() < time.Now().Unix(); per = per.AddDate(0, 0, 1) {
 			perd := per.Format("2006-01-02")
 			gr, ok := GraphPeriods[perd]
@@ -1779,6 +1819,7 @@ func main() {
 		api.GET("salesmatrix/", fetchAllSalesmatrix)
 		api.PUT("salesmatrix/", updateSalesmatrix)
 		api.POST("setsalesmatrix/:store", setsalesmatrix)
+		api.POST("setbalance/:store", setbalance)
 
 		api.GET("goods/", fetchSingleGoods)
 		api.POST("goods/", updateGoods)

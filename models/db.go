@@ -1266,6 +1266,67 @@ func GetLastBalance(uidStore string, uidGoods string) (string, float64, error) {
 	return lastper, balance, nil
 }
 
+//UpdateBalance изменяет последний баланс
+func UpdateBalance(matr []map[string]interface{}) error {
+	var uidStore, uidGoods string
+	var ok bool
+	var balance float64
+	//var query string
+
+	Tx, err := DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer Tx.Commit()
+
+	for _, v := range matr {
+		uidStore, ok = v["uidStore"].(string)
+		if ok {
+			uidGoods, ok = v["uidGoods"].(string)
+		}
+		if ok {
+			balance, ok = v["balance"].(float64)
+		} else {
+			continue
+		}
+		groupGoods := v["groupGoods"].(string)
+		var period string = "1970-01-01"
+		rows, err := dbGetRow("select g.id as id, g.balance as balance, g.period as period from goodsmov as g WHERE g.uidStore=$1 and g.uidGoods=$2 order by g.period DESC limit 1;", uidStore, uidGoods)
+		if err == nil {
+			if rows != nil {
+				if rows["balance"].(float64) != balance {
+					//обновим
+					period, ok = rows["period"].(string)
+					if !ok {
+						period = "1970-01-01"
+					}
+					id, ok := rows["id"].(int64)
+					if ok {
+						//query=query+"UPDATE goodsmov set balance="+strconv.FormatFloat(balance, 'f', -1, 64)+" WHERE id="+strconv.FormatInt(id,10)+";"
+						_, err := Tx.Exec("UPDATE goodsmov set balance=$1 WHERE id=$2;", balance, id)
+						if err != nil {
+							Tx.Rollback()
+							return err
+						}
+
+					}
+				}
+			} else {
+				//нет записи, но баланс есть. добавим
+				if balance != 0 {
+					//query=query+"INSERT OR REPLACE INTO goodsmov (uidStore,uidGoods,groupGoods,period,cnt,summa,margin,balance,prevdays,zerodays,tipmov) VALUES('"+uidStore+"', '"+uidGoods+"', '"+groupGoods+"', '"+period+"', "+strconv.FormatFloat(balance, 'f', -1, 64)+",0,0,"+strconv.FormatFloat(balance, 'f', -1, 64)+",0,0,'M');"
+					_, err := Tx.Exec(`INSERT OR REPLACE INTO goodsmov (uidStore,uidGoods,groupGoods,period,cnt,summa,margin,balance,prevdays,zerodays,tipmov) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11);`, uidStore, uidGoods, groupGoods, period, balance, 0, 0, balance, 0, 0, "M")
+					if err != nil {
+						Tx.Rollback()
+						return err
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
 //SaveSales сохраняет данные в базу
 func SaveSales(uidStore string, uidGoods string, period string, tipmov string, cnt float64, summa float64, margin float64, balance float64, prevdays int, zerodays int) error {
 	//rows, err := DB.Query("select uidGoods from goodsmov where uidStore=$1 and uidGoods=$2 and period=$3;", uidStore, uidGoods, period)
@@ -1938,7 +1999,7 @@ func GetZakazXML(period string) ([]OrderXML, error) {
 			//log.Panic(err)
 		}
 		if pret == "" {
-			e := errors.New("Нет данных")
+			e := errors.New("Нет д��нных")
 			return orders, e
 		}
 		period = pret
