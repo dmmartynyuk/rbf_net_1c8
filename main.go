@@ -21,7 +21,7 @@ import (
 )
 
 //Version версия программы
-const Version = "0.4.6"
+const Version = "0.4.7"
 
 //Mcalc флаг работы функции calculate
 type Mcalc struct {
@@ -1004,7 +1004,7 @@ func setbalance(c *gin.Context) {
 			c.JSON(http.StatusNotAcceptable, gin.H{"status": http.StatusNotAcceptable, "error": true, "message": err.Error()})
 		}
 	}
-	models.DbLog("end. конец обновления матрицы товаров "+time.Now().Format("2006-01-02T15:04:05"), "setbalance", time.Now().UTC().UnixNano())
+	models.DbLog("end. конец синхронизации баланса товаров "+time.Now().Format("2006-01-02T15:04:05"), "setbalance", time.Now().UTC().UnixNano())
 	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "ok"})
 }
 

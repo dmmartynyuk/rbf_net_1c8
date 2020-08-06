@@ -939,9 +939,9 @@ func (c Config) Save() (string, error) {
 				rows.Close()
 				continue
 			}
-			s = append(s, "update config set value="+Escape(v)+" where name="+Escape(k)+";")
+			s = append(s, "update config set value="+Escape(v)+" where name='"+Escape(k)+"';")
 		} else {
-			s = append(s, "insert into config (name, value) values("+Escape(k)+","+Escape(v)+");")
+			s = append(s, "insert into config (name, value) values('"+Escape(k)+"','"+Escape(v)+"');")
 		}
 		rows.Close()
 	}
