@@ -521,35 +521,48 @@ func apiMakeOrders(uidstorearg, uidgoodarg string) {
 				}
 				//надо заказать для склада
 				cntzak := float64(delivdays) * merch.PredDemand
+				explain := `"days":` + strconv.FormatInt(int64(delivdays), 10) + `,"demand":` + strconv.FormatFloat(merch.PredDemand, 'f', 10, 64) + `,"z1":` + strconv.FormatFloat(cntzak, 'f', 3, 64)
 				//смотрим текущий остаток и минимальный остаток склада
 				//cntzak = cntzak - (merch.Balance - (merch.MinBalance + merch.Vitrina))
 				//if cntzak+merch.Balance > merch.MaxBalance {
 				//	cntzak = merch.MaxBalance - merch.Balance
 				//}
-				cntzak = cntzak - (merch.Balance - merch.Vitrina)
+				//пока товар едет может продасться штук
+				salecnt := float64(contract.Delivdays) * merch.PredDemand
+				//к моменту доставки на складе останется
+				balance := merch.Balance - salecnt
+				if balance < 0 {
+					balance = 0
+				}
+				cntzak = cntzak - (balance - merch.Vitrina)
+				explain = explain + ",\"curbalance\":" + strconv.FormatFloat(merch.Balance, 'f', 2, 64) + ",\"delivdays\":" + strconv.FormatInt(int64(contract.Delivdays), 10) + ",\"delivsales\":" + strconv.FormatFloat(salecnt, 'f', 3, 64) + ",\"delivbalance\":" + strconv.FormatFloat(balance, 'f', 3, 64)
 				//если указан максимальный баланс, то добиваем до него
 
-				if merch.MinBalance > 0 && merch.Balance < merch.MinBalance {
-					if cntzak < merch.MinBalance-merch.Balance {
-						cntzak = merch.MinBalance - merch.Balance
+				if merch.MinBalance > 0 && balance < merch.MinBalance {
+					if cntzak < merch.MinBalance-balance {
+						cntzak = merch.MinBalance - balance
+						explain = explain + ",\"zforminbalance\":" + strconv.FormatFloat(cntzak, 'f', 2, 64) + ",\"minbalance\":" + strconv.FormatFloat(merch.MinBalance, 'f', 2, 64)
 					}
 				}
 				//но не более maxbalance
-				if cntzak > 0.0 && cntzak+merch.Balance > merch.MaxBalance && merch.MaxBalance > 0 {
-					cntzak = merch.MaxBalance - merch.Balance
+				if cntzak > 0.0 && cntzak+balance > merch.MaxBalance && merch.MaxBalance > 0 {
+					cntzak = merch.MaxBalance - balance
+					explain = explain + ",\"maxbalance\":" + strconv.FormatFloat(merch.MaxBalance, 'f', 2, 64) + ",\"zformaxbalance\":" + strconv.FormatFloat(cntzak, 'f', 2, 64)
 				}
 				//надо заказывать кратно step
 				if cntzak > 0.0 && merch.Step > 1 {
 					cntzak = float64(int(merch.Step) * int(cntzak/merch.Step+0.9999))
+					explain = explain + ",\"step\":" + strconv.FormatFloat(merch.Step, 'f', 2, 64) + ",\"zstep\"" + strconv.FormatFloat(cntzak, 'f', 2, 64)
 				}
 
 				if cntzak > 0.0 && (int)(cntzak+0.5) > 0 {
-					models.SaveOper(ordersnum, provider, uidstore, merch.KeyGoods, now.Format("2006-01-02"), cntzak, next.Format("2006-01-02"), datedelivdays)
+					models.SaveOper(ordersnum, provider, uidstore, merch.KeyGoods, now.Format("2006-01-02"), cntzak, next.Format("2006-01-02"), datedelivdays, explain)
 				}
 				//обновим ср потребность в матрице
 				var m map[string]interface{}
 				m = map[string]interface{}{}
 				m["demand"] = merch.PredDemand
+				m["comment"] = explain
 				if merch.Abc == "F" {
 					m["abc"] = merch.Abc
 				}

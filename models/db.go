@@ -1758,7 +1758,7 @@ func GetLastStateNetwork(num int, strmodul string) map[int]string {
 }
 
 //SaveOper сохраняет данные заказов в базу
-func SaveOper(numdoc string, provider string, uidstore string, uidgoods string, period string, cnt float64, nextper string, delivery string) error {
+func SaveOper(numdoc string, provider string, uidstore string, uidgoods string, period string, cnt float64, nextper string, delivery string, comment string) error {
 	//если заказ уже сделан то пропускаем и не пишем
 	//needwrite := true
 	cents, err := dbGetFVal("Select ifnull(sum(ordered),0) from oper where provider=$1 and uidStore=$2 and uidGoods=$3 and delivery>$4", provider, uidstore, uidgoods, period)
@@ -1767,7 +1767,10 @@ func SaveOper(numdoc string, provider string, uidstore string, uidgoods string, 
 	}
 	//заказ д.б. больше нуля
 	if cnt > 0 {
-		_, err := DB.Exec("INSERT OR REPLACE INTO oper (uidStore, uidGoods, provider, period, cnt, nextper,NumDoc,delivery) VALUES($1,$2,$3,$4,$5,$6,$7,$8);", uidstore, uidgoods, provider, period, cnt, nextper, numdoc, delivery)
+		if cents > 0 {
+			comment = comment + ",\"delivdate\":\"" + delivery + "\",\"delivcnt\":" + strconv.FormatFloat(cents, 'f', 2, 64) + ",\"zitog\":" + strconv.FormatFloat(cnt, 'f', 2, 64)
+		}
+		_, err := DB.Exec("INSERT OR REPLACE INTO oper (uidStore, uidGoods, provider, period, cnt, nextper,NumDoc,delivery, comment) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9);", uidstore, uidgoods, provider, period, cnt, nextper, numdoc, delivery, comment)
 		if err != nil {
 			return err
 			//log.Panic(err)
@@ -2249,7 +2252,10 @@ func GetCenterMatrix(uidGoods string, uidProvider string) (mg []MatrixGoods, err
 			rows, err = Tx.Query(`SELECT z.uidgoods, sum(z.balance) as balance, sum(z.minbalance) as minbalance, sum(z.maxbalance) as maxbalance, sum(z.vitrina) as vitrina, sum(z.demand) as demand from
 			(SELECT sm.uidStore, sm.uidgoods, sm.minbalance as minbalance, sm.maxbalance as maxbalance, sm.vitrina as vitrina, IfNULL(l.balance,0) as balance, IfNULL(sm.demand,0) as demand from salesmatrix sm join TEMP.lastbalance l on sm.uidStore=l.uidStore and sm.uidgoods=l.uidgoods where sm.uidgoods in (select uidgoods from contractgoods where uidprovider=$1) and sm.inuse=1) as z GROUP BY z.uidgoods;`, uidProvider)
 		*/
-		rows, err = DB.Query(`SELECT z.uidgoods, sum(z.balance) as balance, sum(z.minbalance) as minbalance, sum(z.maxbalance) as maxbalance, sum(z.vitrina) as vitrina, sum(z.demand) as demand from 
+		//если баланс помагазину больше минимального, то уменьшвем бадланс до минимального. Олеги тпк хотят,
+		//например в одной точке скопилось оч много товара, а в других его нет. Тогда у поставщика ничего не закажет
+		//поскольку по сети товара достаточно, но в других то магазинах нет ничего...
+		rows, err = DB.Query(`SELECT z.uidgoods, sum(CASE WHEN z.balance>z.minbalance THEN z.minbalance ELSE z.balance END) as balance, sum(z.minbalance) as minbalance, sum(z.maxbalance) as maxbalance, sum(z.vitrina) as vitrina, sum(z.demand) as demand from 
 		(SELECT sm.uidStore, sm.uidgoods, sm.minbalance as minbalance, sm.maxbalance as maxbalance, sm.vitrina as vitrina, IfNULL(l.balance,0) as balance, IfNULL(sm.demand,0) as demand from salesmatrix sm join (select g.uidStore, g.uidGoods,g.period, g.balance from goodsmov g where g.id in (
 			select max(m.id) from goodsmov m where m.uidgoods in (select uidgoods from contractgoods where uidprovider='` + Escape(uidProvider) + `') group by m.uidStore, m.uidGoods)) as l on sm.uidStore=l.uidStore and sm.uidgoods=l.uidgoods where sm.uidgoods in (select uidgoods from contractgoods where uidprovider='` + Escape(uidProvider) + `') and sm.inuse=1) as z GROUP BY z.uidgoods;`)
 
