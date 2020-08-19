@@ -340,14 +340,15 @@ delivdate:'2020-08-26',delivcnt:6.00,zitog:4.00}"
 			*/
 			let tdcnt="";
 			if( jcomment.hasOwnProperty("days")){
-				comment="Количество дней обеспечения склада: "+jcomment.days+"<br />Потребность на день: "+jcomment.demand+
-				"<br />Тогда необходимо заказать:"+jcomment.z1+
+				comment="Количество дней обеспечения склада: "+jcomment.days+". Потребность на день: "+jcomment.demand+
+				"<br />Тогда необходимо: "+jcomment.days+"*"+jcomment.demand+"="+jcomment.z1+" единиц."+
 				"<br />Текущий баланс: "+jcomment.curbalance+
-				"<br />Пока товар в пути "+jcomment.delivdays+" дней, будет продано "+jcomment.delivsales+" единиц<br />и к моменту поступления на складе останется"+jcomment.delivbalance+" единиц";
+				"<br />Пока товар в пути "+jcomment.delivdays+" дней, будет продано "+jcomment.delivsales+" единиц<br />и к моменту поступления на складе останется "+jcomment.delivbalance+" единиц";
 				if(jcomment.hasOwnProperty("zforminbalance")){comment=comment+"<br />До минимального остатка "+jcomment.minbalance+" единиц необходимо заказать "+jcomment.zforminbalance+" шт.";}
 				if(jcomment.hasOwnProperty("zformaxbalance")){comment=comment+"<br />Чтобы не превысить максимальный остаток "+jcomment.maxbalance+" единиц необходимо заказать "+jcomment.zformaxbalance+" шт.";}
+				if(jcomment.hasOwnProperty("step")){comment=comment+"<br />Кратность поставки "+jcomment.step+" единиц. Тогда к заказу "+jcomment.zstep+" шт.";}
 				if(jcomment.hasOwnProperty("delivcnt")){comment=comment+"<br />Доставка предыдущего заказа будет "+jcomment.delivdate+" и в пути уже находится "+jcomment.delivcnt+" единиц.";}
-				comment=comment+"<br />Итого к заказу: <b>"+jcomment.zitog+"</b>";
+				if(jcomment.hasOwnProperty("zitog")){comment=comment+"<br />Итого к заказу: <b>"+jcomment.zitog+"</b>";}else{comment=comment+"<br />Итого к заказу: <b>"+items[i].cnt+"</b>";};
 				tdcnt='<a tabindex="0" class="cnt" data-toggle="popover" data-trigger="focus" title="Расшифровка расчета" data-content="'+comment+'">'+items[i].cnt+'</a>';
 			}else{
 				tdcnt=""+items[i].cnt;

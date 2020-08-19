@@ -527,8 +527,11 @@ func apiMakeOrders(uidstorearg, uidgoodarg string) {
 				//if cntzak+merch.Balance > merch.MaxBalance {
 				//	cntzak = merch.MaxBalance - merch.Balance
 				//}
-				//пока товар едет может продасться штук
+				//пока товар едет может продаться штук
 				salecnt := float64(contract.Delivdays) * merch.PredDemand
+				if salecnt < 0.1 {
+					salecnt = 0.0
+				}
 				//к моменту доставки на складе останется
 				balance := merch.Balance - salecnt
 				if balance < 0 {
@@ -550,9 +553,9 @@ func apiMakeOrders(uidstorearg, uidgoodarg string) {
 					explain = explain + ",\"maxbalance\":" + strconv.FormatFloat(merch.MaxBalance, 'f', 2, 64) + ",\"zformaxbalance\":" + strconv.FormatFloat(cntzak, 'f', 2, 64)
 				}
 				//надо заказывать кратно step
-				if cntzak > 0.0 && merch.Step > 1 {
+				if (int)(cntzak+0.5) > 0 && merch.Step > 1 {
 					cntzak = float64(int(merch.Step) * int(cntzak/merch.Step+0.9999))
-					explain = explain + ",\"step\":" + strconv.FormatFloat(merch.Step, 'f', 2, 64) + ",\"zstep\"" + strconv.FormatFloat(cntzak, 'f', 2, 64)
+					explain = explain + ",\"step\":" + strconv.FormatFloat(merch.Step, 'f', 2, 64) + ",\"zstep\":" + strconv.FormatFloat(cntzak, 'f', 2, 64)
 				}
 
 				if cntzak > 0.0 && (int)(cntzak+0.5) > 0 {
