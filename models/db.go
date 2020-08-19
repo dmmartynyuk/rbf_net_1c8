@@ -25,11 +25,12 @@ type User struct {
 //ZakazGoods строки заказа
 type ZakazGoods struct {
 	//UID товар
-	UID   string  `json:"uid"`
-	Price float64 `json:"price"`
-	Cnt   float64 `json:"cnt"`
-	Art   string  `json:"art"`
-	Name  string  `json:"name"`
+	UID     string  `json:"uid"`
+	Price   float64 `json:"price"`
+	Cnt     float64 `json:"cnt"`
+	Art     string  `json:"art"`
+	Name    string  `json:"name"`
+	Comment string  `json:"comment"`
 }
 
 //Zakaz заказы
@@ -1769,6 +1770,8 @@ func SaveOper(numdoc string, provider string, uidstore string, uidgoods string, 
 	if cnt > 0 {
 		if cents > 0 {
 			comment = comment + ",\"delivdate\":\"" + delivery + "\",\"delivcnt\":" + strconv.FormatFloat(cents, 'f', 2, 64) + ",\"zitog\":" + strconv.FormatFloat(cnt, 'f', 2, 64)
+		} else {
+			comment = comment + ",\"zitog\":" + strconv.FormatFloat(cnt, 'f', 2, 64)
 		}
 		_, err := DB.Exec("INSERT OR REPLACE INTO oper (uidStore, uidGoods, provider, period, cnt, nextper,NumDoc,delivery, comment) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9);", uidstore, uidgoods, provider, period, cnt, nextper, numdoc, delivery, comment)
 		if err != nil {
@@ -1887,11 +1890,11 @@ func GetZakaz(num string, page int, gate int, sortfield string, sortorder string
 	//все заказы без строк
 	if num == "" {
 		recs, _ = dbGetIntVal("Select count(distinct NumDoc) FROM oper " + where + ";")
-		rows, err = DB.Query("Select distinct o.uidStore as uidStore, '' as uidGoods, o.provider as uidprovider, o.period as period, 0 as cnt, '' as nextper, o.NumDoc, ifnull(s.name,'') as sname, '' as gname, '' as art, pr.name as provname FROM oper o left join stores s on o.uidStore=s.uid left join providers as pr on o.provider=pr.uid " + where + orderby + limit + ";")
+		rows, err = DB.Query("Select distinct o.uidStore as uidStore, '' as uidGoods, o.provider as uidprovider, o.period as period, 0 as cnt, '' as nextper, o.NumDoc, ifnull(s.name,'') as sname, '' as gname, '' as art, pr.name as provname, '' as comment FROM oper o left join stores s on o.uidStore=s.uid left join providers as pr on o.provider=pr.uid " + where + orderby + limit + ";")
 	} else {
 		//выводим данные по конкретному заказу
 		recs, _ = dbGetIntVal("Select count(*) FROM oper WHERE NumDoc=$1;", num)
-		rows, err = DB.Query("Select o.uidStore as uidStore, o.uidGoods as uidGoods, o.provider as uidprovider, o.period as period, o.cnt, o.delivery, o.NumDoc, ifnull(s.name,'') as sname, ifnull(g.name,'') as gname, ifnull(g.art,'') as art, pr.name as provname FROM oper o left join goods g on o.uidgoods=g.uid left join stores s on o.uidStore=s.uid left join providers as pr on o.provider=pr.uid WHERE o.NumDoc=$1 ORDER BY g.art"+limit+";", num)
+		rows, err = DB.Query("Select o.uidStore as uidStore, o.uidGoods as uidGoods, o.provider as uidprovider, o.period as period, o.cnt, o.delivery, o.NumDoc, ifnull(s.name,'') as sname, ifnull(g.name,'') as gname, ifnull(g.art,'') as art, pr.name as provname, ifnull(o.comment,'') as comment FROM oper o left join goods g on o.uidgoods=g.uid left join stores s on o.uidStore=s.uid left join providers as pr on o.provider=pr.uid WHERE o.NumDoc=$1 ORDER BY g.art"+limit+";", num)
 	}
 	if err != nil {
 		return 0, zaks, err
@@ -1903,11 +1906,12 @@ func GetZakaz(num string, page int, gate int, sortfield string, sortorder string
 	var art sql.NullString
 	var gname sql.NullString
 	var pname sql.NullString
+	var comment sql.NullString
 	z := Zakaz{}
 	i := ZakazGoods{}
 	for rows.Next() {
 		i = ZakazGoods{}
-		err := rows.Scan(&store, &i.UID, &provider, &pr, &cnt, &nextper, &numdoc, &sname, &gname, &art, &pname)
+		err := rows.Scan(&store, &i.UID, &provider, &pr, &cnt, &nextper, &numdoc, &sname, &gname, &art, &pname, &comment)
 		if err != nil {
 			return 0, zaks, err
 		}
@@ -1961,6 +1965,11 @@ func GetZakaz(num string, page int, gate int, sortfield string, sortorder string
 			i.Name = gname.String
 		} else {
 			i.Name = ""
+		}
+		if comment.Valid {
+			i.Comment = "{" + comment.String + "}"
+		} else {
+			i.Comment = "{}"
 		}
 		i.Price = 0.0
 

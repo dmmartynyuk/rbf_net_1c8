@@ -59,6 +59,7 @@ content: " ";
 .sortable{
 cursor:pointer;
 }
+.cnt {cursor:pointer;}
 </style>
 {{end}}
 {{define "content"}}
@@ -318,15 +319,52 @@ $(document).ready(function(){
 		for (var i = 0; i < items.length; i++) {
 			var snum=i+1;
 			var gname=items[i].name.replace(/"/g,"\'");
+			var comment=items[i].comment;
+			let jcomment={};
+			try {
+				jcomment = JSON.parse(comment);
+			}catch (err){
+				comment="";
+			}
+			/*
+"{days:16,demand:0.6222222222,z1:9.956,curbalance:3.00,delivdays:8,delivsales:4.9777777778,delivbalance:0.000,zforminbalance:10.00,minbalance:10.00,
+delivdate:'2020-08-26',delivcnt:6.00,zitog:4.00}"
+Количество дней обеспечения склада: 16
+Потребность на день: 0.6222222222
+Тогда необходимо заказать: 9.956
+Текущий баланс 3.00
+Пока товар в пути 8 дней, будет продано 4.9777777778 единиц,
+и к моменту поступления на складе останется 0.000 единиц.
+Добавляем к балансу 10.00 единиц до минимального остатка 10.00
+Доставка предыдущего заказа будет 2020-08-26 и в пути уже находится 6.00 единиц, Итого заказываем 4.00 единиц.
+			*/
+			let tdcnt="";
+			if( jcomment.hasOwnProperty("days")){
+				comment="Количество дней обеспечения склада: "+jcomment.days+"<br />Потребность на день: "+jcomment.demand+
+				"<br />Тогда необходимо заказать:"+jcomment.z1+
+				"<br />Текущий баланс: "+jcomment.curbalance+
+				"<br />Пока товар в пути "+jcomment.delivdays+" дней, будет продано "+jcomment.delivsales+" единиц<br />и к моменту поступления на складе останется"+jcomment.delivbalance+" единиц";
+				if(jcomment.hasOwnProperty("zforminbalance")){comment=comment+"<br />До минимального остатка "+jcomment.minbalance+" единиц необходимо заказать "+jcomment.zforminbalance+" шт.";}
+				if(jcomment.hasOwnProperty("zformaxbalance")){comment=comment+"<br />Чтобы не превысить максимальный остаток "+jcomment.maxbalance+" единиц необходимо заказать "+jcomment.zformaxbalance+" шт.";}
+				if(jcomment.hasOwnProperty("delivcnt")){comment=comment+"<br />Доставка предыдущего заказа будет "+jcomment.delivdate+" и в пути уже находится "+jcomment.delivcnt+" единиц.";}
+				comment=comment+"<br />Итого к заказу: <b>"+jcomment.zitog+"</b>";
+				tdcnt='<a tabindex="0" class="cnt" data-toggle="popover" data-trigger="focus" title="Расшифровка расчета" data-content="'+comment+'">'+items[i].cnt+'</a>';
+			}else{
+				tdcnt=""+items[i].cnt;
+			}
 			if(gname.length==0){
 			 gname=items[i].uid;
 			} 
-			str+='<tr scope="row"><td>'+snum+'</td><td data-uid="'+items[i].uid+'"><a href="/sales?uidstores='+data.orders[0].recipientuid+'&uidgoods='+items[i].uid+'&period=3&uidstores_text='+data.orders[0].recipientname.replace(/"/g,"\'")+'&uidgoods_text=('+items[i].art+") "+items[i].name.replace(/"/g,"\'")+'" target="_blank">'+items[i].art+'</a></td><td>'+gname+'</td><td>'+items[i].cnt+'</td></tr>'
+			str+='<tr scope="row"><td>'+snum+'</td><td data-uid="'+items[i].uid+'"><a href="/sales?uidstores='+data.orders[0].recipientuid+'&uidgoods='+items[i].uid+'&period=3&uidstores_text='+data.orders[0].recipientname.replace(/"/g,"\'")+'&uidgoods_text=('+items[i].art+") "+items[i].name.replace(/"/g,"\'")+'" target="_blank">'+items[i].art+'</a></td><td>'+gname+'</td><td>'+tdcnt+'</td></tr>'
 			Ordertab.push([snum, items[i].art,gname,items[i].cnt]);
 		}
 		str+='</tbody>';
 		table.innerHTML=str
 		$("#itemstab").append(table);
+		$('.cnt').popover({
+			trigger: 'focus',
+			html: true
+		})
 	});
 	$('#taborder tr.active').each(function( index ) {
 		$( this ).removeClass("active"); 
