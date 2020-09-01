@@ -341,11 +341,18 @@ func (rbf *RBFNetwork) TrainW(inp []float64, out []float64, cntpred int, epoches
 	}
 	step = 1.0
 	errnet = 9999999999.99
+	reterr := 0.0
 	for ep := 0; ep < epoches && math.Abs(step) > 0.0005; ep++ {
+		//изменяем сигма до минимализации ошибки
+		rbf.SetSpread(sigma)
+		o := rbf.TrainRBF(input, output)
 		pred := rbf.Predict(inputW)
-		errPr := 0.0
+		//errPr := 0.0
+		errPr := o
+		reterr = 0
 		for i := 0; i < len(outputW) && i < len(inputW); i++ {
 			err := outputW[i] - pred[i]
+			reterr = (reterr + err/outputW[i]) / float64(i+1)
 			errPr += 0.5 * err * err
 		}
 		if errPr > errnet {
@@ -353,16 +360,16 @@ func (rbf *RBFNetwork) TrainW(inp []float64, out []float64, cntpred int, epoches
 		}
 		sigma = math.Abs(sigma + step)
 		errnet = errPr
-		if errnet == 0 {
+		if errnet < 0.0000001 && errnet > -0.0000001 {
 			break
 		}
 		//изменяем сигма до минимализации ошибки
-		rbf.SetSpread(sigma)
-		rbf.TrainRBF(input, output)
+		//rbf.SetSpread(sigma)
+		//o:=rbf.TrainRBF(input, output)
 	}
 	//итак мы нашли sigma, теперь не меняем ее
 	//увеличим количество входов
-	return errnet
+	return reterr
 }
 
 //Round округляет число

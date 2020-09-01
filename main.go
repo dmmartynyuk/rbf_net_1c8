@@ -21,7 +21,7 @@ import (
 )
 
 //Version версия программы
-const Version = "0.4.11"
+const Version = "0.4.15"
 
 //Mcalc флаг работы функции calculate
 type Mcalc struct {
@@ -1751,6 +1751,105 @@ func helpPage(c *gin.Context) {
 
 }
 
+func finPage(c *gin.Context) {
+	hdata := make(map[string]interface{})
+	hdata["Page"] = "finance"
+	hdata["Version"] = Version
+	hdata["User"] = "DM"
+	hdata["Title"] = "Финансовые показатели"
+
+	uidstore := c.DefaultQuery("uidstores", "")
+	period := c.DefaultQuery("period", "")
+	hdata["Uidstores"] = uidstore
+	hdata["Period"] = period
+	hdata["Uidstorestext"] = c.DefaultQuery("uidstores_text", "")
+
+	per, err := strconv.Atoi(period)
+	if err != nil {
+		per = 12
+	}
+	pfrom := time.Now().AddDate(0, -per-1, 0).Format("2006-01-02")
+	//для списка фильтра
+	_, _, hdata["Stores"], _ = models.GetTable("stores", 0, 0, "tip>0")
+
+	hdata["SalesCounts"] = 0
+	hdata["SalesProfit"] = 0
+	hdata["SalesSumm"] = 0
+	dataprof := "['дата','выручка','прибыль']"
+	//для накопления результата
+	gr := make(map[string]models.ProfitGraph)
+	//datafin, err := models.GetProfitMounth("2017-01-01", time.Now().Format("2006-01-02"))
+	if uidstore == "0" {
+		uidstore = ""
+	}
+	datafin, qerr, err := RecalcProfit(uidstore, pfrom, "")
+	hdata["NetErr"] = int(qerr*10000/2) / 100
+	if err != nil {
+		hdata["Error"] = err.Error()
+	}
+
+	//если нет ничего гуугл ругается.  следовательно заполним начальную точку
+	//dataprof = dataprof + ",['" + per1date.Format("2006-01-02") + "',0,0,0]"
+	//var scnt int64
+	var ssum int64
+	var sprof int64
+	for k, datamag := range datafin {
+		if uidstore == "" || k == uidstore {
+			for p, v := range datamag {
+				if p >= len(datamag)-per {
+					prg, ok := gr[v.Period]
+					if ok {
+						//prg.Cnt = prg.Cnt + v.Cnt
+						prg.Profit = prg.Profit + v.Profit
+						prg.Proceed = prg.Proceed + v.Proceed
+						gr[v.Period] = prg
+					} else {
+						t := models.ProfitGraph{}
+						t.Period = v.Period
+						t.Proceed, t.Profit = v.Proceed, v.Profit
+						gr[v.Period] = t
+					}
+					//scnt = scnt + v.Cnt
+					sprof = sprof + v.Profit
+					ssum = ssum + v.Proceed
+				}
+			}
+		}
+	}
+	//для сортировки по дате
+	datesort := make([]string, 0, len(gr))
+	for k := range gr {
+		if k != "" {
+			datesort = append(datesort, k)
+		}
+	}
+	sort.Strings(datesort)
+	//get result from gr
+	for _, p := range datesort {
+		v := gr[p]
+		if v.Period != "" {
+			//dataprof = dataprof + ",['" + v.Period + "'," + strconv.FormatInt(v.Proceed, 10) + "," + strconv.FormatInt(v.Profit, 10) + "," + strconv.FormatInt(v.Cnt, 10) + "]"
+			dataprof = dataprof + ",['" + v.Period + "'," + strconv.FormatInt(v.Proceed, 10) + "," + strconv.FormatInt(v.Profit, 10) + "]"
+		}
+	}
+
+	//hdata["SalesCounts"] = strconv.FormatInt(scnt, 10)
+	hdata["SalesProfit"] = strconv.FormatInt(sprof, 10)
+	hdata["SalesSumm"] = strconv.FormatInt(ssum, 10)
+
+	hdata["Dataprofit"] = template.JS(dataprof)
+
+	c.HTML(
+		// Зададим HTTP статус 200 (OK)
+		http.StatusOK,
+		// Используем шаблон index.html
+		"finance",
+		// Передадим данные в шаблон
+		hdata,
+	)
+
+}
+
 func main() {
 	port := flag.Int("port", 3000, "Номер порта")
 	portstr := ":" + strconv.Itoa(*port)
@@ -1802,6 +1901,7 @@ func main() {
 	router.GET("/help", helpPage)
 	router.GET("/sales", predictPage)
 	router.GET("/orders", ordersPage)
+	router.GET("/finance", finPage)
 	api := router.Group("/api/")
 	{
 		api.POST("calc/", calculate)

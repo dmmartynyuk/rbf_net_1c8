@@ -61,6 +61,14 @@ type ItemXML struct {
 	Cnt     float64  `xml:"amount"`
 }
 
+//ProfitGraph структура для графика статистики продаж по магазинам
+type ProfitGraph struct {
+	Period  string //year-month
+	Proceed int64
+	Profit  int64
+	Cnt     int64
+}
+
 //ItemsXML контейнер для всех ItemsXML
 type ItemsXML struct {
 	XMLName xml.Name `xml:"items"`
@@ -1550,6 +1558,47 @@ func ReplaceMatrix(matr []map[string]interface{}, w map[string]string) error {
 	*/
 }
 
+//GetProfitMounth возвращает map со структурой статистики продаж по магазинам
+func GetProfitMounth(uidstore string, pfrom string, pto string) (map[string][]ProfitGraph, error) {
+	row := make([]ProfitGraph, 0, 60)
+	pg := make(map[string][]ProfitGraph) //данные по магазинам
+	var cnt float64
+	var prf float64
+	var uid string
+	var period string
+	var sum float64
+	var rows *sql.Rows
+	var err error
+	if uidstore == "" {
+		rows, err = DB.Query(`select uidStore, strftime('%Y-%m', period) as period, sum(summa) as v, round(sum(summa*margin)) as p, sum(cnt) as cnt from goodsmov where period>=$1 and period<=$2 and uidStore in (select uid from stores where tip>1) and tipmov='S' group by uidStore, strftime('%Y-%m', period) order by uidStore,strftime('%Y-%m', period);`, pfrom, pto)
+	} else {
+		rows, err = DB.Query(`select uidStore, strftime('%Y-%m', period) as period, sum(summa) as v, round(sum(summa*margin)) as p, sum(cnt) as cnt from goodsmov where period>=$1 and period<=$2 and uidStore =$3 and tipmov='S' group by uidStore, strftime('%Y-%m', period) order by uidStore,strftime('%Y-%m', period);`, pfrom, pto, uidstore)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var olduid string
+	for rows.Next() {
+		err = rows.Scan(&uid, &period, &sum, &prf, &cnt)
+		if err != nil {
+			return nil, err
+		}
+		if uid != olduid && len(olduid) > 0 { //следующий магазин
+			pg[uid] = row
+			row = make([]ProfitGraph, 0, 60)
+		}
+		olduid = uid
+		tmp := ProfitGraph{period, int64(sum), int64(prf), int64(cnt)}
+		row = append(row, tmp)
+	}
+	if len(row) > 0 {
+		pg[uid] = row
+	}
+	return pg, nil
+}
+
 //GetProfit возвращвет прибыль для магазина uidStore
 func GetProfit(uidStore string, pfrom string, pto string) (map[string]float64, float64) {
 	goods := make(map[string]float64)
@@ -2264,7 +2313,7 @@ func GetCenterMatrix(uidGoods string, uidProvider string) (mg []MatrixGoods, err
 		//если баланс помагазину больше минимального, то уменьшвем бадланс до минимального. Олеги тпк хотят,
 		//например в одной точке скопилось оч много товара, а в других его нет. Тогда у поставщика ничего не закажет
 		//поскольку по сети товара достаточно, но в других то магазинах нет ничего...
-		rows, err = DB.Query(`SELECT z.uidgoods, sum(CASE WHEN z.balance>z.minbalance THEN z.minbalance ELSE z.balance END) as balance, sum(z.minbalance) as minbalance, sum(z.maxbalance) as maxbalance, sum(z.vitrina) as vitrina, sum(z.demand) as demand from 
+		rows, err = DB.Query(`SELECT z.uidgoods, sum(CASE WHEN z.balance>z.minbalance THEN z.minbalance ELSE z.balance END) as balance, sum(z.minbalance) as minbalance, 9999999 as maxbalance, sum(z.vitrina) as vitrina, sum(z.demand) as demand from 
 		(SELECT sm.uidStore, sm.uidgoods, sm.minbalance as minbalance, sm.maxbalance as maxbalance, sm.vitrina as vitrina, IfNULL(l.balance,0) as balance, IfNULL(sm.demand,0) as demand from salesmatrix sm join (select g.uidStore, g.uidGoods,g.period, g.balance from goodsmov g where g.id in (
 			select max(m.id) from goodsmov m where m.uidgoods in (select uidgoods from contractgoods where uidprovider='` + Escape(uidProvider) + `') group by m.uidStore, m.uidGoods)) as l on sm.uidStore=l.uidStore and sm.uidgoods=l.uidgoods where sm.uidgoods in (select uidgoods from contractgoods where uidprovider='` + Escape(uidProvider) + `') and sm.inuse=1) as z GROUP BY z.uidgoods;`)
 
@@ -2282,7 +2331,7 @@ func GetCenterMatrix(uidGoods string, uidProvider string) (mg []MatrixGoods, err
 				return mg, err
 			}
 		*/
-		rows, err = DB.Query(`SELECT z.uidgoods, sum(z.balance) as balance, sum(z.minbalance) as minbalance, sum(z.maxbalance) as maxbalance, sum(z.vitrina) as vitrina, sum(z.demand) as demand from
+		rows, err = DB.Query(`SELECT z.uidgoods, sum(z.balance) as balance, sum(z.minbalance) as minbalance, 9999999 as maxbalance, sum(z.vitrina) as vitrina, sum(z.demand) as demand from
 			(SELECT sm.uidStore, sm.uidgoods, sm.minbalance as minbalance, sm.maxbalance as maxbalance, sm.vitrina as vitrina, IfNULL(l.balance,0) as balance, IfNULL(sm.demand,0) as demand from salesmatrix sm join (select g.uidStore, g.uidGoods,g.period, g.balance from goodsmov g where g.uidGoods='` + Escape(uidGoods) + `' and g.id in (
 			select max(m.id) from goodsmov m where m.uidgoods in (select uidgoods from contractgoods where uidprovider='` + Escape(uidProvider) + `' and uidgoods='` + Escape(uidGoods) + `') group by m.uidStore, m.uidGoods)) as l on sm.uidStore=l.uidStore and sm.uidgoods=l.uidgoods where sm.uidgoods in (select uidgoods from contractgoods where uidprovider='` + Escape(uidProvider) + `' and uidgoods='` + Escape(uidGoods) + `') and sm.inuse=1) as z GROUP BY z.uidgoods;`)
 	}

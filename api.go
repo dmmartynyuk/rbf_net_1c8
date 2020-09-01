@@ -462,6 +462,8 @@ func apiMakeOrders(uidstorearg, uidgoodarg string) {
 				delivdays = MINDAYSORD
 			}
 			for _, merch := range goods {
+				//прибавляем для округления
+				round := 0.5
 				if Fop.Val() < 0 {
 					//надо завершиться
 					Fop.Set(0)
@@ -517,11 +519,14 @@ func apiMakeOrders(uidstorearg, uidgoodarg string) {
 					if salestat["demand"] > 0 && (merch.PredDemand/salestat["demand"] > 1.3 || merch.PredDemand/salestat["demand"] < 0.77) {
 						merch.PredDemand = salestat["demand"]
 					}
+					round = 0.999
 					//}
 				}
 				//надо заказать для склада
 				cntzak := float64(delivdays) * merch.PredDemand
-				explain := `"days":` + strconv.FormatInt(int64(delivdays), 10) + `,"demand":` + strconv.FormatFloat(merch.PredDemand, 'f', 10, 64) + `,"z1":` + strconv.FormatFloat(cntzak, 'f', 3, 64)
+				//округлим cntzak
+				cntzak = float64(int64(cntzak + 0.99))
+				explain := `"days":` + strconv.FormatInt(int64(delivdays), 10) + `,"demand":` + strconv.FormatFloat(merch.PredDemand, 'f', 10, 64) + `,"z1":` + strconv.FormatFloat(cntzak, 'f', 0, 64)
 				//смотрим текущий остаток и минимальный остаток склада
 				//cntzak = cntzak - (merch.Balance - (merch.MinBalance + merch.Vitrina))
 				//if cntzak+merch.Balance > merch.MaxBalance {
@@ -532,13 +537,14 @@ func apiMakeOrders(uidstorearg, uidgoodarg string) {
 				if salecnt < 0.1 {
 					salecnt = 0.0
 				}
+				salecnt = float64(int64(salecnt + 0.99))
 				//к моменту доставки на складе останется
 				balance := merch.Balance - salecnt
 				if balance < 0 {
 					balance = 0
 				}
 				cntzak = cntzak - (balance - merch.Vitrina)
-				explain = explain + ",\"curbalance\":" + strconv.FormatFloat(merch.Balance, 'f', 2, 64) + ",\"delivdays\":" + strconv.FormatInt(int64(contract.Delivdays), 10) + ",\"delivsales\":" + strconv.FormatFloat(salecnt, 'f', 3, 64) + ",\"delivbalance\":" + strconv.FormatFloat(balance, 'f', 3, 64)
+				explain = explain + ",\"curbalance\":" + strconv.FormatFloat(merch.Balance, 'f', 2, 64) + ",\"delivdays\":" + strconv.FormatInt(int64(contract.Delivdays), 10) + ",\"delivsales\":" + strconv.FormatFloat(salecnt, 'f', 0, 64) + ",\"delivbalance\":" + strconv.FormatFloat(balance, 'f', 3, 64)
 				//если указан максимальный баланс, то добиваем до него
 
 				if merch.MinBalance > 0 && balance < merch.MinBalance {
@@ -558,8 +564,8 @@ func apiMakeOrders(uidstorearg, uidgoodarg string) {
 					explain = explain + ",\"step\":" + strconv.FormatFloat(merch.Step, 'f', 2, 64) + ",\"zstep\":" + strconv.FormatFloat(cntzak, 'f', 2, 64)
 				}
 
-				if cntzak > 0.0 && (int)(cntzak+0.5) > 0 {
-					models.SaveOper(ordersnum, provider, uidstore, merch.KeyGoods, now.Format("2006-01-02"), cntzak, next.Format("2006-01-02"), datedelivdays, explain)
+				if cntzak > 0.0 && (int)(cntzak+round) > 0 {
+					models.SaveOper(ordersnum, provider, uidstore, merch.KeyGoods, now.Format("2006-01-02"), float64((int)(cntzak+round)), next.Format("2006-01-02"), datedelivdays, explain)
 				}
 				//обновим ср потребность в матрице
 				var m map[string]interface{}
@@ -829,4 +835,154 @@ func needPredict(uidStore string, uidGoods string) bool {
 		return true
 	}
 	return false
+}
+
+//RecalcProfit статистика и прогноз финансовых показателей
+func RecalcProfit(keystore, pfrom, pto string) (map[string][]models.ProfitGraph, float64, error) {
+	//получим статистику по магазинам по месяцам
+	if pfrom == "" {
+		pfrom = "2006-01-02"
+	}
+	if pto == "" {
+		pto = time.Now().Format("2006-01-02")
+	}
+	stat, err := models.GetProfitMounth(keystore, pfrom, pto)
+	if err != nil {
+		return stat, 1, err
+	}
+	retqerr := float64(0)
+	//расчитаем прогноз по финансовым показателям на след три месяца для каждого магазина
+	//последний месяц в расчет не берем, если он не полный
+	for uidstore, magstat := range stat {
+		lenst := len(magstat)
+		if time.Now().Day() < 29 {
+			lenst--
+		}
+		//v отсортирован по периодм
+		var lastper string
+		//по магазину прогнозируем прибыль
+		profit := make([]float64, lenst+3)
+		//продажи
+		proceed := make([]float64, lenst+3)
+		//количества
+		//cnts := make([]float64, lenst+3)
+		inputs := make([]float64, lenst+3)
+		centers := make([]float64, 0, 12)
+		for k := 0; k < lenst; k++ {
+			//profit = append(profit, float64(st.Profit))
+			profit[k] = float64(magstat[k].Profit)
+			proceed[k] = float64(magstat[k].Proceed)
+			//cnts[k] = float64(magstat[k].Cnt)
+			inputs[k] = float64(k + 1)
+			m, _ := strconv.Atoi(magstat[k].Period[5:])
+			if len(centers) == 0 && m > 8 && m < 11 {
+				centers = append(centers, inputs[k])
+			}
+			if m == 8 || m == 2 { //центры ставим на февраль и август
+				centers = append(centers, inputs[k])
+			}
+			//inputs = append(inputs, float64(k+1))
+			//proceed = append(proceed, float64(st.Proceed))
+			//cnts = append(cnts, float64(st.Cnt))
+			lastper = magstat[k].Period
+		}
+		year, month, _ := time.Now().Date()
+		y, err := strconv.Atoi(lastper[0:4])
+		if err != nil {
+			y = year
+		}
+		m, err := strconv.Atoi(lastper[5:])
+		if err != nil {
+			m = int(month)
+		}
+		//заполним прогнозируемые периоды
+		for k := 0; k < 3; k++ {
+			m++
+			if m > 12 {
+				m = 1
+				y++
+			}
+			stat[uidstore] = append(stat[uidstore], models.ProfitGraph{})
+			if m > 9 {
+				stat[uidstore][k+lenst].Period = strconv.FormatInt(int64(y), 10) + "-" + strconv.FormatInt(int64(m), 10)
+			} else {
+				stat[uidstore][k+lenst].Period = strconv.FormatInt(int64(y), 10) + "-0" + strconv.FormatInt(int64(m), 10)
+			}
+		}
+		for k := lenst; k < lenst+3; k++ {
+			//inputs = append(inputs, float64(k+1))
+			//profit = append(profit, float64(k+1))
+			//proceed = append(proceed, float64(0))
+			//cnts = append(cnts, float64(0))
+			profit[k] = float64(0)
+			proceed[k] = float64(0)
+			//cnts[k] = float64(0)
+			inputs[k] = float64(k + 1)
+		}
+
+		_, _, statf := rbfnet.GetSigma(profit[:lenst])
+		//предсказания продаж
+		_, _, statp := rbfnet.GetSigma(proceed[:lenst])
+		if len(inputs) < 5 {
+			for k := 0; k < 3; k++ {
+				stat[uidstore][k+lenst].Profit = int64(statf["mean"] + 0.5)
+				stat[uidstore][k+lenst].Proceed = int64(statp["mean"] + 0.5)
+			}
+			continue
+		}
+		//normalize
+		for k, v := range profit {
+			profit[k] = v / statf["max"]
+		}
+		//количество известных значений
+		EXPL := 1
+		//centers := rbfnet.MakeCenters(inputs[0:lenst-EXPL], 6)
+
+		//if float64(lenst-EXPL-1)-centers[len(centers)-1] > 2 {
+		//	centers = append(centers, centers[len(centers)-1]+6)
+		//}
+		if len(centers) == 0 {
+			centers = append(centers, inputs[int(lenst/2)])
+			//centers[0] = inputs[int(lenst/2)]
+		} else {
+			centers = append(centers, centers[len(centers)-1]+6)
+		}
+		r := rbfnet.NewRBFNetwork(lenst-EXPL, len(centers), 6, centers)
+
+		//предсказания выручки
+		qerr := r.TrainW(inputs[0:lenst], profit[:lenst], EXPL, 1000)
+		//r.Train(inputs[0:lenst], profit[:lenst], 1000)
+		copy(profit[lenst:], r.Predict(inputs[lenst:]))
+		//получили тренд.
+		for k := 0; k < 3; k++ {
+			stat[uidstore][k+lenst].Profit = int64((profit[lenst+k]*qerr/2 + profit[lenst+k]) * statf["max"])
+		}
+
+		//normalize
+		for k, v := range proceed {
+			proceed[k] = v / statp["max"]
+		}
+		qerr = r.TrainW(inputs[0:lenst], proceed[:lenst], EXPL, 1000)
+		copy(proceed[lenst:], r.Predict(inputs[lenst:]))
+		for k := 0; k < 3; k++ {
+			stat[uidstore][k+lenst].Proceed = int64((proceed[lenst+k]*qerr/2 + proceed[lenst+k]) * statp["max"])
+		}
+		if retqerr < math.Abs(qerr) {
+			retqerr = qerr
+		}
+		/*
+			//предсказания количества
+			_, _, statp = rbfnet.GetSigma(cnts[:lenst])
+			//normalize
+			for k, v := range cnts {
+				cnts[k] = v / statp["max"]
+			}
+			r.Train(inputs[0:lenst], cnts[:lenst], 1000)
+			copy(cnts[lenst:], r.Predict(inputs[lenst:]))
+			for k := 0; k < 3; k++ {
+				stat[uidstore][k+lenst].Cnt = int64(cnts[lenst+k] * statp["max"])
+			}
+		*/
+	}
+	return stat, retqerr, nil
 }
