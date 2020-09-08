@@ -17,9 +17,11 @@ var DB *sql.DB
 
 // User stores information of a users
 type User struct {
-	Name  string
-	Email string
-	Intro string
+	Name  string `json:"name"`
+	Pass  string `json:"pass"`
+	Group string `json:"group"`
+	Email string `json:"email"`
+	Intro string `json:"intro"`
 }
 
 //ZakazGoods строки заказа
@@ -218,6 +220,68 @@ type Predict struct {
 	Demand float64
 }
 
+//GetUsers выводит из базы список пользователей
+func GetUsers(group string) ([]User, error) {
+	var rows *sql.Rows
+	var err error
+	if group == "" {
+		rows, err = DB.Query("select name,pass,email,intro,usergroup from users;")
+	} else {
+		rows, err = DB.Query("select name,pass,email,intro,usergroup from users where group=$1;", group)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var users = make([]User, 0, 36)
+	var email, intro sql.NullString
+	if rows.Next() {
+		user := User{}
+		err := rows.Scan(&user.Name, &user.Pass, &email, &intro, &user.Group)
+		if err != nil {
+			return nil, err
+		}
+		if email.Valid {
+			user.Email = email.String
+		} else {
+			user.Email = ""
+		}
+		if intro.Valid {
+			user.Intro = intro.String
+		} else {
+			user.Intro = ""
+		}
+		users = append(users, user)
+	}
+	return users, nil
+}
+
+//SetUser добавляет пользователя в базу
+func SetUser(name, pass, group, email, intro string) error {
+	if name == "" || pass == "" {
+		return errors.New("Необходимо ввести имя пользователя и пароль")
+	}
+	if group == "" {
+		group = "manager"
+	}
+	uname, err := dbGetStrVal("Select name from users where name=$1 limit 1;", name)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	if uname != "" {
+		if len(email) > 0 && len(intro) > 0 {
+			_, err = DB.Exec("update users set pass=$1, email=$2, usergroup=$3, intro=$4 where name=$5", pass, email, group, intro, name)
+		} else if len(email) > 0 {
+			_, err = DB.Exec("update users set pass=$1, email=$2, usergroup=$3 where name=$4", pass, email, group, name)
+		} else if len(intro) > 0 {
+			_, err = DB.Exec("update users set pass=$1, usergroup=$2, intro=$3 where name=$4", pass, group, intro, name)
+		}
+		return err
+	}
+	_, err = DB.Exec("insert into users (name,pass,usergroup,email,intro) values($1,$2,$3,$4);", name, pass, group, email, intro)
+	return err
+}
+
 //Escape экранирует символы для sql
 func Escape(source string) string {
 	var j int = 0
@@ -346,7 +410,7 @@ func dbGetVal(q string, args ...interface{}) (interface{}, error) {
 		}
 		return ret, nil
 	}
-	return nil, errors.New("Нет данных")
+	return nil, sql.ErrNoRows
 }
 
 func dbGetStrVal(q string, args ...interface{}) (string, error) {
@@ -363,7 +427,7 @@ func dbGetStrVal(q string, args ...interface{}) (string, error) {
 		}
 		return ret, nil
 	}
-	return ret, errors.New("Нет данных")
+	return ret, sql.ErrNoRows
 }
 
 func dbGetIntVal(q string, args ...interface{}) (int, error) {
@@ -380,7 +444,7 @@ func dbGetIntVal(q string, args ...interface{}) (int, error) {
 		}
 		return ret, nil
 	}
-	return ret, errors.New("Нет данных")
+	return ret, sql.ErrNoRows
 }
 func dbGetFVal(q string, args ...interface{}) (float64, error) {
 	var ret float64 = 0.0
@@ -396,7 +460,7 @@ func dbGetFVal(q string, args ...interface{}) (float64, error) {
 		}
 		return ret, nil
 	}
-	return ret, errors.New("Нет данных")
+	return ret, sql.ErrNoRows
 }
 
 func dbGetRow(q string, args ...interface{}) (map[string]interface{}, error) {
@@ -609,6 +673,9 @@ func GetTable(tname string, page int, gate int, cond string) (int, string, []map
 		//s = "select s.uidStore,st.name as Склад,s.uidGoods as uidТовара,g.name as Номенклатура, g.Art as артикул,s.minbalance as МинОстаток,s.maxbalance as МаксОстаток,s.cost,s.vitrina,s.midperiod,s.demand,s.price,s.margin,s.inuse as ВПродаже,s.abc from salesmatrix as s left join stores as st on s.uidStore=st.uid left join goods as g on s.uidGoods=g.uid" + where + limit + ";"
 		s = "select s.ROWID,s.uidStore,st.name as storename,s.uidGoods as uidGoods,g.groupname as groupname, g.name as goodsname, g.Art as art,s.minbalance as minbalance,s.maxbalance as maxbalance,s.inuse as inuse,s.abc as abc, s.step as step, ifnull(s.demand,0.0)  from salesmatrix as s left join stores as st on s.uidStore=st.uid left join goods as g on s.uidGoods=g.uid" + where + " order by st.name, g.groupname, g.art" + limit + ";"
 		recs = "select count(s.ROWID) from salesmatrix as s left join stores as st on s.uidStore=st.uid left join goods as g on s.uidGoods=g.uid" + where + ";"
+	case "users":
+		s = "select id, name, pass, ifnull(email,''),ifnull(intro,''),usergroup from users" + where + " order by name " + limit + ";"
+		recs = "select count(*) from users " + where + ";"
 	}
 	rcount, err = dbGetIntVal(recs)
 	if err != nil {

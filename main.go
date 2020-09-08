@@ -21,7 +21,7 @@ import (
 )
 
 //Version версия программы
-const Version = "0.4.15"
+const Version = "0.4.16"
 
 //Mcalc флаг работы функции calculate
 type Mcalc struct {
@@ -49,6 +49,9 @@ var Mc Mcalc
 
 //Fop флаг работы горутины oper
 var Fop Mcalc
+
+//Users  пользователи
+var Users []models.User
 
 //calculate прогнозирунт продажи, lkc-коф для сети, отношение входных нейронов к скрытым, progper-количество дней прогноза
 func calculate(c *gin.Context) {
@@ -1755,8 +1758,28 @@ func finPage(c *gin.Context) {
 	hdata := make(map[string]interface{})
 	hdata["Page"] = "finance"
 	hdata["Version"] = Version
-	hdata["User"] = "DM"
 	hdata["Title"] = "Финансовые показатели"
+
+	hdata["SalesProfit"] = 0
+	hdata["SalesSumm"] = 0
+	dataprof := "['дата','выручка','прибыль']"
+
+	// get user, it was set by the BasicAuth middleware
+	user := c.MustGet(gin.AuthUserKey).(string)
+	finusers := make(map[string]string)
+	for _, v := range Users {
+		switch v.Group {
+		case "finance":
+			finusers[v.Name] = v.Pass
+		}
+	}
+	var isAuth bool = true
+	if _, ok := finusers[user]; !ok {
+		hdata["Error"] = "Доступ закрыт! Обратитесь к администратору :("
+		isAuth = false
+		dataprof = dataprof + ",['2020-01',0,0]"
+	}
+	hdata["User"] = user
 
 	uidstore := c.DefaultQuery("uidstores", "")
 	period := c.DefaultQuery("period", "")
@@ -1772,71 +1795,68 @@ func finPage(c *gin.Context) {
 	//для списка фильтра
 	_, _, hdata["Stores"], _ = models.GetTable("stores", 0, 0, "tip>0")
 
-	hdata["SalesCounts"] = 0
-	hdata["SalesProfit"] = 0
-	hdata["SalesSumm"] = 0
-	dataprof := "['дата','выручка','прибыль']"
 	//для накопления результата
 	gr := make(map[string]models.ProfitGraph)
 	//datafin, err := models.GetProfitMounth("2017-01-01", time.Now().Format("2006-01-02"))
 	if uidstore == "0" {
 		uidstore = ""
 	}
-	datafin, qerr, err := RecalcProfit(uidstore, pfrom, "")
-	hdata["NetErr"] = int(qerr*10000/2) / 100
-	if err != nil {
-		hdata["Error"] = err.Error()
-	}
+	if isAuth {
+		datafin, qerr, err := RecalcProfit(uidstore, pfrom, "")
+		hdata["NetErr"] = int(qerr*10000/2) / 100
+		if err != nil {
+			hdata["Error"] = err.Error()
+		}
 
-	//если нет ничего гуугл ругается.  следовательно заполним начальную точку
-	//dataprof = dataprof + ",['" + per1date.Format("2006-01-02") + "',0,0,0]"
-	//var scnt int64
-	var ssum int64
-	var sprof int64
-	for k, datamag := range datafin {
-		if uidstore == "" || k == uidstore {
-			for p, v := range datamag {
-				if p >= len(datamag)-per {
-					prg, ok := gr[v.Period]
-					if ok {
-						//prg.Cnt = prg.Cnt + v.Cnt
-						prg.Profit = prg.Profit + v.Profit
-						prg.Proceed = prg.Proceed + v.Proceed
-						gr[v.Period] = prg
-					} else {
-						t := models.ProfitGraph{}
-						t.Period = v.Period
-						t.Proceed, t.Profit = v.Proceed, v.Profit
-						gr[v.Period] = t
+		//если нет ничего гуугл ругается.  следовательно заполним начальную точку
+		//dataprof = dataprof + ",['" + per1date.Format("2006-01-02") + "',0,0,0]"
+		//var scnt int64
+		var ssum int64
+		var sprof int64
+		for k, datamag := range datafin {
+			if uidstore == "" || k == uidstore {
+				for p, v := range datamag {
+					if p >= len(datamag)-per {
+						prg, ok := gr[v.Period]
+						if ok {
+							//prg.Cnt = prg.Cnt + v.Cnt
+							prg.Profit = prg.Profit + v.Profit
+							prg.Proceed = prg.Proceed + v.Proceed
+							gr[v.Period] = prg
+						} else {
+							t := models.ProfitGraph{}
+							t.Period = v.Period
+							t.Proceed, t.Profit = v.Proceed, v.Profit
+							gr[v.Period] = t
+						}
+						//scnt = scnt + v.Cnt
+						sprof = sprof + v.Profit
+						ssum = ssum + v.Proceed
 					}
-					//scnt = scnt + v.Cnt
-					sprof = sprof + v.Profit
-					ssum = ssum + v.Proceed
 				}
 			}
 		}
-	}
-	//для сортировки по дате
-	datesort := make([]string, 0, len(gr))
-	for k := range gr {
-		if k != "" {
-			datesort = append(datesort, k)
+		//для сортировки по дате
+		datesort := make([]string, 0, len(gr))
+		for k := range gr {
+			if k != "" {
+				datesort = append(datesort, k)
+			}
 		}
-	}
-	sort.Strings(datesort)
-	//get result from gr
-	for _, p := range datesort {
-		v := gr[p]
-		if v.Period != "" {
-			//dataprof = dataprof + ",['" + v.Period + "'," + strconv.FormatInt(v.Proceed, 10) + "," + strconv.FormatInt(v.Profit, 10) + "," + strconv.FormatInt(v.Cnt, 10) + "]"
-			dataprof = dataprof + ",['" + v.Period + "'," + strconv.FormatInt(v.Proceed, 10) + "," + strconv.FormatInt(v.Profit, 10) + "]"
+		sort.Strings(datesort)
+		//get result from gr
+		for _, p := range datesort {
+			v := gr[p]
+			if v.Period != "" {
+				//dataprof = dataprof + ",['" + v.Period + "'," + strconv.FormatInt(v.Proceed, 10) + "," + strconv.FormatInt(v.Profit, 10) + "," + strconv.FormatInt(v.Cnt, 10) + "]"
+				dataprof = dataprof + ",['" + v.Period + "'," + strconv.FormatInt(v.Proceed, 10) + "," + strconv.FormatInt(v.Profit, 10) + "]"
+			}
 		}
+
+		//hdata["SalesCounts"] = strconv.FormatInt(scnt, 10)
+		hdata["SalesProfit"] = strconv.FormatInt(sprof, 10)
+		hdata["SalesSumm"] = strconv.FormatInt(ssum, 10)
 	}
-
-	//hdata["SalesCounts"] = strconv.FormatInt(scnt, 10)
-	hdata["SalesProfit"] = strconv.FormatInt(sprof, 10)
-	hdata["SalesSumm"] = strconv.FormatInt(ssum, 10)
-
 	hdata["Dataprofit"] = template.JS(dataprof)
 
 	c.HTML(
@@ -1850,6 +1870,185 @@ func finPage(c *gin.Context) {
 
 }
 
+func usersPage(c *gin.Context) {
+	hdata := make(map[string]interface{})
+	hdata["Page"] = "users"
+	hdata["Version"] = Version
+	hdata["Title"] = "Пользователи"
+	user := c.MustGet(gin.AuthUserKey).(string)
+	hdata["User"] = user
+	c.HTML(
+		// Зададим HTTP статус 200 (OK)
+		http.StatusOK,
+		// Используем шаблон index.html
+		"users",
+		// Передадим данные в шаблон
+		hdata,
+	)
+}
+
+//usertab работа со списком пользователей
+func usertab(c *gin.Context) {
+	type Item struct {
+		ROWID    int64  `json:"rowid" binding:"required"`
+		Name     string `json:"name" binding:"required"`
+		Password string `json:"pass" binding:"required"`
+		Email    string `json:"email" binding:"-"`
+		Intro    string `json:"intro" binding:"-"`
+		Group    string `json:"group" binding:"required"`
+	}
+
+	rowid := c.DefaultQuery("rowid", "")
+	_, err := strconv.Atoi(rowid)
+	if err != nil {
+		rowid = ""
+	}
+
+	name := c.DefaultQuery("name", "")
+	pass := c.DefaultQuery("pass", "")
+	email := c.DefaultQuery("email", "")
+	intro := c.DefaultQuery("intro", "")
+	group := c.DefaultQuery("group", "")
+	cond := ""
+	if len(rowid) > 0 {
+		cond = "rowid=" + rowid
+	}
+	if len(name) > 0 {
+		if len(cond) > 0 {
+			cond = cond + " and "
+		}
+		cond = cond + "name='" + name + "'"
+	}
+
+	spg := c.DefaultQuery("pageIndex", "1")
+	pg, err := strconv.Atoi(spg)
+	if err != nil {
+		pg = 1
+	}
+	sgate := c.DefaultQuery("pageSize", "25")
+	gate, err := strconv.Atoi(sgate)
+	if err != nil {
+		gate = 25
+	}
+	switch c.Request.Method {
+	case "GET":
+		rows, _, data, err := models.GetTable("users", pg-1, gate, "")
+		if err != nil && rows > 0 {
+			c.JSON(http.StatusNotFound, gin.H{"data": "[]", "status": http.StatusNotFound, "message": err.Error()})
+			return
+		}
+
+		Items := make([]Item, 0, len(data))
+		//нулевая строка содержит имена полей, пропускаем
+		for r := 1; r < len(data); r++ {
+			i := Item{}
+			v := data[r]
+			i.ROWID = (v[0]).(int64)
+			i.Name = (v[1]).(string)
+			i.Password = (v[2]).(string)
+			i.Email = (v[3]).(string)
+			i.Intro = (v[4]).(string)
+			i.Group = (v[5]).(string)
+			Items = append(Items, i)
+		}
+
+		c.JSON(http.StatusOK, gin.H{"data": Items, "itemsCount": rows})
+	case "POST":
+		//insert
+		matr := make(map[string]interface{})
+		cond := make(map[string]string)
+		if len(name) > 0 {
+			cond["name"] = name
+		}
+
+		matr["name"] = name
+		matr["pass"] = pass
+		matr["email"] = email
+		matr["intro"] = intro
+		matr["usergroup"] = group
+		m := make([]map[string]interface{}, 0, 16)
+		m = append(m, matr)
+		err := models.InsertTableData("users", m, cond)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"data": "[]", "status": http.StatusNotFound, "message": err.Error()})
+		}
+		var i Item
+		r, _ := strconv.Atoi(rowid)
+		i.ROWID = int64(r)
+		i.Name = name
+		i.Password = pass
+		i.Group = group
+		i.Email = email
+		i.Intro = intro
+		c.JSON(http.StatusOK, i)
+	case "PUT":
+		//update
+		matr := make(map[string]interface{})
+		cond := make(map[string]string)
+		if len(rowid) > 0 {
+			cond["rowid"] = rowid
+		} else {
+			if len(name) > 0 {
+				cond["name"] = name
+			}
+		}
+		matr["name"] = name
+		matr["pass"] = pass
+		matr["email"] = email
+		matr["intro"] = intro
+		matr["usergroup"] = group
+		m := make([]map[string]interface{}, 0, 16)
+		m = append(m, matr)
+		err := models.UpdateTableData("users", m, cond)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"data": "[]", "status": http.StatusNotFound, "message": err.Error()})
+		}
+		var i Item
+		r, _ := strconv.Atoi(rowid)
+		i.ROWID = int64(r)
+		i.Name = name
+		i.Password = pass
+		i.Group = group
+		i.Email = email
+		i.Intro = intro
+		c.JSON(http.StatusOK, i)
+	case "DELETE":
+		cond := make(map[string]string)
+		if len(rowid) > 0 {
+			cond["rowid"] = rowid
+		} else {
+			if len(name) > 0 {
+				cond["name"] = name
+			}
+		}
+		err := models.DeleteTableData("users", cond)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"data": "[]", "status": http.StatusNotFound, "message": err.Error()})
+		}
+	}
+
+}
+
+/*
+//AuthMiddleware обработчик ошибок
+func AuthMiddleware(c *gin.Context) {
+	defer func(c *gin.Context) {
+		if rec := recover(); rec != nil {
+			if strings.ToLower(c.Request.Header.Get("X-Requested-With")) == "xmlhttprequest" {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error": rec,
+				})
+			} else {
+				c.HTML(http.StatusUnauthorized, "/error.html", gin.H{
+					"message": "401 errors",
+				})
+			}
+
+		}
+	}(c)
+	c.Next()
+}
+*/
 func main() {
 	port := flag.Int("port", 3000, "Номер порта")
 	portstr := ":" + strconv.Itoa(*port)
@@ -1861,10 +2060,32 @@ func main() {
 	}
 	defer models.DB.Close()
 
+	finusers := make(map[string]string)
+	adminusers := make(map[string]string)
+	Users, err := models.GetUsers("")
+	if err != nil {
+		user := models.User{}
+		user.Name = "User"
+		user.Group = "manager"
+		user.Pass = ""
+		Users = append(Users, user)
+	} else {
+		for _, v := range Users {
+			switch v.Group {
+			case "finance":
+				finusers[v.Name] = v.Pass
+			case "admin":
+				adminusers[v.Name] = v.Pass
+				finusers[v.Name] = v.Pass
+			}
+		}
+	}
+
 	//fs := http.FileServer(http.Dir("./assets/"))
 	//http.Handle("/assets/", http.StripPrefix("/assets/", fs))
 
 	router := gin.Default()
+	//router.Use(AuthMiddleware)
 	router.Static("/assets", "./assets")
 	//router.StaticFS("/more_static", http.Dir("my_file_system"))
 	//router.StaticFile("/favicon.ico", "./resources/favicon.ico")
@@ -1892,16 +2113,22 @@ func main() {
 		},
 		DisableCache: true,
 	})
-
+	fin := router.Group("/fin", gin.BasicAuth(finusers))
+	adm := router.Group("/admin", gin.BasicAuth(adminusers))
 	//router.LoadHTMLGlob("tpl/*")
 	//router.LoadHTMLFiles("templates/template1.html", "templates/template2.html")
 	router.GET("/", startPage)
-	router.GET("/config", confPage)
 	router.GET("/tables", tablesPage)
 	router.GET("/help", helpPage)
 	router.GET("/sales", predictPage)
 	router.GET("/orders", ordersPage)
-	router.GET("/finance", finPage)
+	fin.GET("/finance", finPage)
+	adm.GET("/config", confPage)
+	adm.GET("/users", usersPage)
+	adm.GET("/usertab", usertab)
+	adm.PUT("/usertab", usertab)
+	adm.POST("/usertab", usertab)
+	adm.DELETE("/usertab", usertab)
 	api := router.Group("/api/")
 	{
 		api.POST("calc/", calculate)
