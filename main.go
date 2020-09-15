@@ -21,7 +21,7 @@ import (
 )
 
 //Version версия программы
-const Version = "0.4.16"
+const Version = "0.5.3"
 
 //Mcalc флаг работы функции calculate
 type Mcalc struct {
@@ -666,6 +666,45 @@ func updateGoods(c *gin.Context) {
 		return
 	}
 	models.DbLog("end. конец обновления товаров в базу "+time.Now().Format("2006-01-02T15:04:05"), "updateGoods", time.Now().UTC().UnixNano())
+	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "ok"})
+}
+
+//updateAnalog обновление Номенклатуры
+func updateAnalog(c *gin.Context) {
+	type Goods struct {
+		Uidgoods  string `json:"uidgoods" binding:"required"`
+		Uidanalog string `json:"uidanalog" binding:"required"`
+		Queue     int    `json:"queue" binding:"required"`
+	}
+	var sm []Goods
+	// in this case proper binding will be automatically selected
+	if err := c.ShouldBindJSON(&sm); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "error": true, "message": "bad request " + err.Error()})
+		return
+	}
+	/*
+		CREATE TABLE goods (uid text PRIMARY KEY, groupname text, name text NOT NULL, art text)
+	*/
+	matr := make([]map[string]interface{}, 0, 256)
+	del := make(map[string]string)
+	del["id"] = ">0"
+	for _, v := range sm {
+		m := make(map[string]interface{})
+		m["uidgoods"] = v.Uidgoods
+		m["uidanalog"] = v.Uidanalog
+		m["queue"] = v.Queue
+		matr = append(matr, m)
+	}
+	w := make(map[string]string)
+	models.DbLog("beg. начало обновления аналогов в базу "+time.Now().Format("2006-01-02T15:04:05"), "updateAnalog", time.Now().UTC().UnixNano())
+	models.DeleteTableData("goodsanalog", del)
+	err := models.InsertTableData("goodsanalog", matr, w)
+	if err != nil {
+		models.DbLog("err. ошибка обновления аналогов в базу "+err.Error()+" "+time.Now().Format("2006-01-02T15:04:05"), "updateAnalog", time.Now().UTC().UnixNano())
+		c.JSON(http.StatusNotAcceptable, gin.H{"status": http.StatusNotAcceptable, "error": true, "message": err.Error()})
+		return
+	}
+	models.DbLog("end. конец обновления аналогов в базу "+time.Now().Format("2006-01-02T15:04:05"), "updateAnalog", time.Now().UTC().UnixNano())
 	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "ok"})
 }
 
@@ -1767,9 +1806,12 @@ func finPage(c *gin.Context) {
 	// get user, it was set by the BasicAuth middleware
 	user := c.MustGet(gin.AuthUserKey).(string)
 	finusers := make(map[string]string)
+	Users, _ = models.GetUsers("")
 	for _, v := range Users {
 		switch v.Group {
 		case "finance":
+			finusers[v.Name] = v.Pass
+		case "admin":
 			finusers[v.Name] = v.Pass
 		}
 	}
@@ -1899,16 +1941,35 @@ func usertab(c *gin.Context) {
 	}
 
 	rowid := c.DefaultQuery("rowid", "")
+	if rowid == "" {
+		rowid = c.DefaultPostForm("rowid", "")
+	}
+	//не число?
 	_, err := strconv.Atoi(rowid)
 	if err != nil {
 		rowid = ""
 	}
 
 	name := c.DefaultQuery("name", "")
+	if name == "" {
+		name = c.DefaultPostForm("name", "")
+	}
 	pass := c.DefaultQuery("pass", "")
+	if pass == "" {
+		pass = c.DefaultPostForm("pass", "")
+	}
 	email := c.DefaultQuery("email", "")
+	if email == "" {
+		email = c.DefaultPostForm("email", "")
+	}
 	intro := c.DefaultQuery("intro", "")
+	if intro == "" {
+		intro = c.DefaultPostForm("intro", "")
+	}
 	group := c.DefaultQuery("group", "")
+	if group == "" {
+		group = c.DefaultPostForm("group", "")
+	}
 	cond := ""
 	if len(rowid) > 0 {
 		cond = "rowid=" + rowid
@@ -1958,7 +2019,7 @@ func usertab(c *gin.Context) {
 		matr := make(map[string]interface{})
 		cond := make(map[string]string)
 		if len(name) > 0 {
-			cond["name"] = name
+			cond["name"] = "="
 		}
 
 		matr["name"] = name
@@ -1992,6 +2053,10 @@ func usertab(c *gin.Context) {
 				cond["name"] = name
 			}
 		}
+		if len(cond) == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"data": "[]", "status": http.StatusNotFound, "message": "ошибка передачи параметров"})
+			return
+		}
 		matr["name"] = name
 		matr["pass"] = pass
 		matr["email"] = email
@@ -2002,6 +2067,7 @@ func usertab(c *gin.Context) {
 		err := models.UpdateTableData("users", m, cond)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"data": "[]", "status": http.StatusNotFound, "message": err.Error()})
+			return
 		}
 		var i Item
 		r, _ := strconv.Atoi(rowid)
@@ -2150,6 +2216,7 @@ func main() {
 
 		api.GET("goods/", fetchSingleGoods)
 		api.POST("goods/", updateGoods)
+		api.POST("goodsanalog/", updateAnalog)
 
 		api.GET("neuro/:store/:goods", getNeuroData)
 		api.GET("predict/:store/:goods", getPredict)

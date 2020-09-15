@@ -349,6 +349,13 @@ delivdate:'2020-08-26',delivcnt:6.00,zitog:4.00}"
 				if(jcomment.hasOwnProperty("step")){comment=comment+"<br />Кратность поставки "+jcomment.step+" единиц. Тогда к заказу "+jcomment.zstep+" шт.";}
 				if(jcomment.hasOwnProperty("delivcnt")){comment=comment+"<br />Доставка предыдущего заказа будет "+jcomment.delivdate+" и в пути уже находится "+jcomment.delivcnt+" единиц.";}
 				if(jcomment.hasOwnProperty("zitog")){comment=comment+"<br />Итого к заказу: <b>"+jcomment.zitog+"</b>";}else{comment=comment+"<br />Итого к заказу: <b>"+items[i].cnt+"</b>";};
+				if(jcomment.hasOwnProperty("analog")){
+					if(jcomment.anbalance>0){
+						comment=comment+"<br />Требуемая номенклатура "+jcomment.analog+" заменена на аналог.";
+					}else{
+						comment=comment+"<br />аналога "+jcomment.analog+" на центральном не было!";
+					}
+				}
 				tdcnt='<a tabindex="0" class="cnt" data-toggle="popover" data-trigger="focus" title="Расшифровка расчета" data-content="'+comment+'">'+items[i].cnt+'</a>';
 			}else{
 				tdcnt=""+items[i].cnt;

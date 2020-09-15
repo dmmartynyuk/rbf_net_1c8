@@ -553,9 +553,10 @@ func apiMakeOrders(uidstorearg, uidgoodarg string) {
 						explain = explain + ",\"zforminbalance\":" + strconv.FormatFloat(cntzak, 'f', 2, 64) + ",\"minbalance\":" + strconv.FormatFloat(merch.MinBalance, 'f', 2, 64)
 					}
 				}
+				//if cntzak > 0.0 && cntzak+balance > merch.MaxBalance && merch.MaxBalance > 0 {
 				//но не более maxbalance
-				if cntzak > 0.0 && cntzak+balance > merch.MaxBalance && merch.MaxBalance > 0 {
-					cntzak = merch.MaxBalance - balance
+				if cntzak > 0.0 && cntzak+merch.Balance > merch.MaxBalance && merch.MaxBalance > 0 {
+					cntzak = merch.MaxBalance - merch.Balance
 					explain = explain + ",\"maxbalance\":" + strconv.FormatFloat(merch.MaxBalance, 'f', 2, 64) + ",\"zformaxbalance\":" + strconv.FormatFloat(cntzak, 'f', 2, 64)
 				}
 				//надо заказывать кратно step
@@ -563,7 +564,31 @@ func apiMakeOrders(uidstorearg, uidgoodarg string) {
 					cntzak = float64(int(merch.Step) * int(cntzak/merch.Step+0.9999))
 					explain = explain + ",\"step\":" + strconv.FormatFloat(merch.Step, 'f', 2, 64) + ",\"zstep\":" + strconv.FormatFloat(cntzak, 'f', 2, 64)
 				}
-
+				//если у поставщика нет достаточного количества, то подбираем аналог
+				if !outlineprovider {
+					_, provbalance, _ := models.GetLastBalance(provider, merch.KeyGoods)
+					if provbalance == 0 {
+						analog, ost, _ := models.GetAnalog(provider, merch.KeyGoods)
+						if len(analog) > 0 {
+							var gds *models.Goods
+							if ost > 0 {
+								gds, _ = models.GetGood(merch.KeyGoods)
+							} else {
+								gds, _ = models.GetGood(analog)
+							}
+							gname := gds.Name
+							if len(gname) > 0 {
+								gname = gds.Name + " (" + gds.Art + ")"
+							} else {
+								gname = merch.KeyGoods
+							}
+							explain = explain + ",\"analog\":\"" + gname + "\",\"anbalance\":" + strconv.FormatFloat(ost, 'f', 2, 64)
+							if ost > 0 {
+								merch.KeyGoods = analog
+							}
+						}
+					}
+				}
 				if cntzak > 0.0 && (int)(cntzak+round) > 0 {
 					models.SaveOper(ordersnum, provider, uidstore, merch.KeyGoods, now.Format("2006-01-02"), float64((int)(cntzak+round)), next.Format("2006-01-02"), datedelivdays, explain)
 				}
@@ -858,15 +883,15 @@ func RecalcProfit(keystore, pfrom, pto string) (map[string][]models.ProfitGraph,
 		if time.Now().Day() < 29 {
 			lenst--
 		}
-		//v отсортирован по периодм
+		//lastper последний период
 		var lastper string
-		//по магазину прогнозируем прибыль
-		profit := make([]float64, lenst+3)
-		//продажи
-		proceed := make([]float64, lenst+3)
+		//profit по магазину прибыль
+		profit := make([]float64, lenst+4)
+		//proceed продажи
+		proceed := make([]float64, lenst+4)
 		//количества
 		//cnts := make([]float64, lenst+3)
-		inputs := make([]float64, lenst+3)
+		inputs := make([]float64, lenst+4)
 		centers := make([]float64, 0, 12)
 		for k := 0; k < lenst; k++ {
 			//profit = append(profit, float64(st.Profit))
@@ -885,6 +910,20 @@ func RecalcProfit(keystore, pfrom, pto string) (map[string][]models.ProfitGraph,
 			//proceed = append(proceed, float64(st.Proceed))
 			//cnts = append(cnts, float64(st.Cnt))
 			lastper = magstat[k].Period
+		}
+		//добавим виртуальный период с медианным значением
+		inputs[lenst] = float64(lenst + 4)
+		mean, _, _ := rbfnet.StdDev(profit)
+		if lenst < 12 {
+			profit[lenst] = mean
+		} else {
+			profit[lenst] = profit[lenst-(12-4)]
+		}
+		mean, _, _ = rbfnet.StdDev(proceed)
+		if lenst < 12 {
+			proceed[lenst] = mean
+		} else {
+			proceed[lenst] = proceed[lenst-(12-4)]
 		}
 		year, month, _ := time.Now().Date()
 		y, err := strconv.Atoi(lastper[0:4])
@@ -909,7 +948,7 @@ func RecalcProfit(keystore, pfrom, pto string) (map[string][]models.ProfitGraph,
 				stat[uidstore][k+lenst].Period = strconv.FormatInt(int64(y), 10) + "-0" + strconv.FormatInt(int64(m), 10)
 			}
 		}
-		for k := lenst; k < lenst+3; k++ {
+		for k := lenst + 1; k < lenst+4; k++ {
 			//inputs = append(inputs, float64(k+1))
 			//profit = append(profit, float64(k+1))
 			//proceed = append(proceed, float64(0))
@@ -917,13 +956,13 @@ func RecalcProfit(keystore, pfrom, pto string) (map[string][]models.ProfitGraph,
 			profit[k] = float64(0)
 			proceed[k] = float64(0)
 			//cnts[k] = float64(0)
-			inputs[k] = float64(k + 1)
+			inputs[k] = float64(k)
 		}
 
 		_, _, statf := rbfnet.GetSigma(profit[:lenst])
 		//предсказания продаж
 		_, _, statp := rbfnet.GetSigma(proceed[:lenst])
-		if len(inputs) < 5 {
+		if lenst < 5 {
 			for k := 0; k < 3; k++ {
 				stat[uidstore][k+lenst].Profit = int64(statf["mean"] + 0.5)
 				stat[uidstore][k+lenst].Proceed = int64(statp["mean"] + 0.5)
@@ -935,7 +974,7 @@ func RecalcProfit(keystore, pfrom, pto string) (map[string][]models.ProfitGraph,
 			profit[k] = v / statf["max"]
 		}
 		//количество известных значений
-		EXPL := 1
+		EXPL := 0
 		//centers := rbfnet.MakeCenters(inputs[0:lenst-EXPL], 6)
 
 		//if float64(lenst-EXPL-1)-centers[len(centers)-1] > 2 {
@@ -947,25 +986,26 @@ func RecalcProfit(keystore, pfrom, pto string) (map[string][]models.ProfitGraph,
 		} else {
 			centers = append(centers, centers[len(centers)-1]+6)
 		}
-		r := rbfnet.NewRBFNetwork(lenst-EXPL, len(centers), 6, centers)
+		r := rbfnet.NewRBFNetwork(lenst-EXPL+1, len(centers), 6, centers)
 
 		//предсказания выручки
-		qerr := r.TrainW(inputs[0:lenst], profit[:lenst], EXPL, 1000)
-		//r.Train(inputs[0:lenst], profit[:lenst], 1000)
-		copy(profit[lenst:], r.Predict(inputs[lenst:]))
+		//qerr := r.TrainW(inputs[0:lenst+1], profit[:lenst+1], EXPL, 1000)
+		qerr := r.Train(inputs[0:lenst+1], profit[:lenst+1], 1000)
+		copy(profit[lenst:], r.Predict(inputs[lenst+1:]))
 		//получили тренд.
 		for k := 0; k < 3; k++ {
-			stat[uidstore][k+lenst].Profit = int64((profit[lenst+k]*qerr/2 + profit[lenst+k]) * statf["max"])
+			stat[uidstore][k+lenst].Profit = int64((profit[lenst+k]) * statf["max"])
 		}
 
 		//normalize
 		for k, v := range proceed {
 			proceed[k] = v / statp["max"]
 		}
-		qerr = r.TrainW(inputs[0:lenst], proceed[:lenst], EXPL, 1000)
-		copy(proceed[lenst:], r.Predict(inputs[lenst:]))
+		//qerr = r.TrainW(inputs[0:lenst+1], proceed[:lenst+1], EXPL, 1000)
+		qerr = r.Train(inputs[0:lenst+1], proceed[:lenst+1], 1000)
+		copy(proceed[lenst:], r.Predict(inputs[lenst+1:]))
 		for k := 0; k < 3; k++ {
-			stat[uidstore][k+lenst].Proceed = int64((proceed[lenst+k]*qerr/2 + proceed[lenst+k]) * statp["max"])
+			stat[uidstore][k+lenst].Proceed = int64((proceed[lenst+k]) * statp["max"])
 		}
 		if retqerr < math.Abs(qerr) {
 			retqerr = qerr

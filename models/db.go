@@ -1311,6 +1311,34 @@ func GetSales(kStore string, kGoods string, p ...string) (*Sales, error) {
 	return s, nil
 }
 
+//GetAnalog вернет товар-аналог string, если он есть на складе и его остаток float64 или ошибку
+func GetAnalog(uidStore string, uidGoods string) (string, float64, error) {
+	var err error
+	var rows *sql.Rows
+	var analog string
+
+	rows, err = DB.Query("select uidanalog from goodsanalog WHERE uidGoods=$1 order by queue;", uidGoods)
+	if err != nil {
+		return "", 0.0, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		err = rows.Scan(&analog)
+		if err != nil {
+			return "", 0.0, err
+		}
+		//проверим а есть ли на складе аналог
+		_, balance, err := GetLastBalance(uidStore, analog)
+		if err != nil {
+			return "", 0.0, err
+		}
+		if balance > 0 {
+			return analog, balance, nil
+		}
+	}
+	return analog, 0.0, nil
+}
+
 //GetLastBalance возвращает последнее движение по складу uidStore для товара uidGoods, если склад пустой, то остаток по всем складам
 func GetLastBalance(uidStore string, uidGoods string) (string, float64, error) {
 	var err error
@@ -1961,6 +1989,9 @@ func GetZakaz(num string, page int, gate int, sortfield string, sortorder string
 	if len(filter) > 0 && len(num) == 0 {
 		s := strings.Split(filter, ":")
 		if strings.Contains(s[0], "period") && len(s) == 2 {
+			if s[1] == "now" {
+				s[1] = time.Now().Format("2006-01-02")
+			}
 			if t, ok := time.Parse("2006-01-02", s[1]); ok == nil {
 				where = " where date(o.period)=date('" + t.Format("2006-01-02") + "')"
 			}

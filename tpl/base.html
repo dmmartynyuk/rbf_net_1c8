@@ -54,10 +54,13 @@
         <a class="nav-link" href="/tables">Справочники{{if eq .Page "tables"}}<span class="sr-only">(current)</span>{{end}}</a>
       </li>
 	  <li class="nav-item{{setActive .Page "orders" }}">
-        <a class="nav-link" href="/orders">Заказы поставщикам{{if eq .Page "orders"}}<span class="sr-only">(current)</span>{{end}}</a>
+        <a class="nav-link" href="/orders?pageFilter=period:now">Заказы поставщикам{{if eq .Page "orders"}}<span class="sr-only">(current)</span>{{end}}</a>
       </li>
       <li class="nav-item dropdown{{setActive .Page "sales" }}">
         <a class="nav-link" href="/sales" >Движения{{if eq .Page "sales"}}<span class="sr-only">(current)</span>{{end}}</a>
+      </li>
+	  <li class="nav-item{{setActive .Page "finance" }}">
+        <a class="nav-link" href="/fin/finance">Фин результаты{{if eq .Page "finance"}}<span class="sr-only">(current)</span>{{end}}</a>
       </li>
 	  <li class="nav-item{{setActive .Page "help" }}">
         <a class="nav-link" href="/help">Помощь{{if eq .Page "help"}}<span class="sr-only">(current)</span>{{end}}</a>
