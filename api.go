@@ -7,6 +7,7 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -408,7 +409,18 @@ func apiMakeOrders(uidstorearg, uidgoodarg string) {
 		return
 	}
 	for _, contract := range contracts {
-		if inChedule(contract.Chedord) {
+		inched := true
+		if strings.Contains(contract.Chedord, "/") {
+			t, err := models.GetLastOrd(contract.Provider)
+			if err == nil {
+				inched = inChedule(contract.Chedord, time.Now(), t)
+			} else {
+				inched = inChedule(contract.Chedord)
+			}
+		} else {
+			inched = inChedule(contract.Chedord)
+		}
+		if inched {
 			tipmov := "S"
 			delivdays = contract.Delivdays
 			provider = contract.Provider

@@ -2130,6 +2130,19 @@ func GetZakaz(num string, page int, gate int, sortfield string, sortorder string
 	return recs, zaks, nil
 }
 
+//GetLastOrd возвращает дату последнего заказа
+func GetLastOrd(provider string) (time.Time, error) {
+	pret, err := dbGetStrVal("Select period from oper Where provider=$1 ORDER BY period DESC Limit 1;", provider)
+	if err != nil {
+		return time.Now(), err
+	}
+	t, err := time.Parse("2006-01-02", pret)
+	if err != nil {
+		return time.Now(), err
+	}
+	return t, nil
+}
+
 //GetZakazXML получает данные заказов
 func GetZakazXML(period string) ([]OrderXML, error) {
 	var orders = make([]OrderXML, 0)

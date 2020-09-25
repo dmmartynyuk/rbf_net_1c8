@@ -15,12 +15,23 @@ func checkDate(format, date string) bool {
 	return t.Format(format) == date
 }
 
+//inChedule проверяет на вхождение даты в формат cron
 func inChedule(ched string, t ...time.Time) bool {
+	/*
+									0 12 * * 3
+		MIN	Минуты	От 0 до 59 -----|
+		HOUR	Часы	От 0 до 23 ---|
+		DOM	День месяца	1-31 -----------|
+		MON	Месяц	1-12  ----------------|
+		DOW	День недели	0-6 ----------------|
+	*/
 	arr := strings.Fields(ched)
 	if len(arr) < 3 {
 		return false
 	}
 	now := time.Now()
+	//предтдущее событие
+	var pred time.Time
 	if len(t) > 0 {
 		now = t[0]
 	}
@@ -38,19 +49,24 @@ func inChedule(ched string, t ...time.Time) bool {
 	if strings.Contains(dw, "*") {
 		okdw = true
 	} else {
+		//посмотрим надо ли повторять событие через определенное количество недель
+		//например 0 12 * * 3/2 будет пытаться повторить событие каждую вторую среду,
+		//если конечно указана дата предидущего события
+		//в то же время запись 0 12 * * 1-5/2 означает повторять с пн по пт через день, т.е пн,ср,пт
+		kof := 1
+		if strings.Contains(dw, "/") {
+			v, err := strconv.Atoi(dw[1+strings.Index(dw, "/"):])
+			if err == nil {
+				kof = v
+			}
+			dw = dw[:strings.Index(dw, "/")]
+		}
 		if strings.Contains(dw, ",") {
 			if strings.Index(dw, strconv.Itoa(nowdw)) >= 0 { //dw = 0:7
 				okdw = true
 			}
 		} else {
 			if strings.Contains(dw, "-") {
-				kof := 1
-				if strings.Contains(dw, "/") {
-					v, err := strconv.Atoi(dw[1+strings.Index(dw, "/"):])
-					if err == nil {
-						kof = v
-					}
-				}
 				arr = strings.Split(dw, "-")
 				beg, err := strconv.Atoi(arr[0])
 				if err != nil {
@@ -66,9 +82,21 @@ func inChedule(ched string, t ...time.Time) bool {
 					}
 				}
 			} else {
+				//если не указана дата предидущего события, то коэф. всегда 1, т.е. повторения через / не учитываются
+				if len(t) == 2 {
+					pred = t[1]
+				} else {
+					kof = 1
+				}
 				v, err := strconv.Atoi(dw)
 				if err == nil && v == nowdw {
-					okdw = true
+					if kof == 1 {
+						okdw = true
+					} else {
+						if pred.AddDate(0, 0, 7*kof).YearDay() == now.YearDay() {
+							okdw = true
+						}
+					}
 				}
 			}
 		}
@@ -96,6 +124,7 @@ func inChedule(ched string, t ...time.Time) bool {
 					if err == nil {
 						kof = v
 					}
+					mon = mon[:strings.Index(mon, "/")]
 				}
 				arr = strings.Split(mon, "-")
 				beg, err := strconv.Atoi(arr[0])
@@ -142,6 +171,7 @@ func inChedule(ched string, t ...time.Time) bool {
 					if err == nil {
 						kof = v
 					}
+					dm = dm[:strings.Index(dm, "/")]
 				}
 				arr = strings.Split(dm, "-")
 				beg, err := strconv.Atoi(arr[0])
