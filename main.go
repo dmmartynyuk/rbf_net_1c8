@@ -21,7 +21,7 @@ import (
 )
 
 //Version версия программы
-const Version = "0.5.5"
+const Version = "0.5.6"
 
 //Mcalc флаг работы функции calculate
 type Mcalc struct {
@@ -70,17 +70,17 @@ func calculate(c *gin.Context) {
 			x := Mc.Val()
 			if int64(v) == x && x > 0 {
 				Mc.Set(-1 * x)
-				c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "seting Mc = " + strconv.FormatInt(Mc.Val(), 10)})
+				c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "seting Mc = " + strconv.FormatInt(Mc.Val(), 10)})
 			} else {
-				c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "bad stop signal. lookin for " + strconv.FormatInt(Mc.Val(), 10)})
+				c.JSON(http.StatusOK, gin.H{"status": "err", "message": "bad stop signal. lookin for " + strconv.FormatInt(Mc.Val(), 10)})
 			}
 		} else {
-			c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": " Atoi err = " + err.Error()})
+			c.JSON(http.StatusOK, gin.H{"status": "err", "message": " Atoi err = " + err.Error()})
 		}
 		return
 	}
 	if Mc.Val() != 0 {
-		c.JSON(http.StatusLocked, gin.H{"status": http.StatusLocked, "start": time.Unix(0, Mc.Val()).Format("2 Jan 2006 15:04:05"), "message": "в процессе расчета " + strconv.FormatInt(Mc.Val(), 10) + " store=" + store + " goods=" + goods})
+		c.JSON(http.StatusOK, gin.H{"status": "err", "start": time.Unix(0, Mc.Val()).Format("2 Jan 2006 15:04:05"), "message": "в процессе расчета " + strconv.FormatInt(Mc.Val(), 10) + " store=" + store + " goods=" + goods})
 		return
 	}
 	if start == "ok" {
@@ -89,12 +89,12 @@ func calculate(c *gin.Context) {
 			for _, v := range slog {
 				if v[:3] != "end" {
 					//находимся в состоянии расчета. выводим это
-					c.JSON(http.StatusLocked, gin.H{"status": http.StatusLocked, "start": time.Unix(0, Mc.Val()).Format("2 Jan 2006 15:04:05"), "message": "в процессе расчета " + strconv.FormatInt(Mc.Val(), 10) + " store=" + store + " goods=" + goods})
+					c.JSON(http.StatusOK, gin.H{"status": http.StatusLocked, "start": time.Unix(0, Mc.Val()).Format("2 Jan 2006 15:04:05"), "message": "в процессе расчета " + strconv.FormatInt(Mc.Val(), 10) + " store=" + store + " goods=" + goods})
 					return
 				}
 			}*/
 		go calcnet(store, goods)
-		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "запущен расчет " + time.Now().Format("2 Jan 2006 15:04:05") + " store=" + store + " goods=" + goods})
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "запущен расчет " + time.Now().Format("2 Jan 2006 15:04:05") + " store=" + store + " goods=" + goods})
 		return
 	}
 	slog := models.GetLastStateNetwork(3, "calculate")
@@ -110,7 +110,7 @@ func calculate(c *gin.Context) {
 			status["err"] = time.Unix(0, int64(k)).Format("2 Jan 2006 15:04:05") + v[4:]
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "beg": status["beg"], "err": status["err"], "end": status["end"]})
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "beg": status["beg"], "err": status["err"], "end": status["end"]})
 }
 
 func createGoods(c *gin.Context) {
@@ -122,10 +122,10 @@ func createGoods(c *gin.Context) {
 	}
 	cnt, err := models.CreateGoods(&g)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": err.Error()})
+		c.JSON(http.StatusOK, gin.H{"status": "err", "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"status": http.StatusCreated, "message": "Goods item created successfully!", "id": cnt})
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "Goods item created successfully!", "id": cnt})
 }
 
 //fetchAllStocks выдает список всех магазинов
@@ -154,7 +154,7 @@ func fetchAllStocks(c *gin.Context) {
 	}
 	rows, _, data, err := models.GetTable("stores", pg-1, gate, cond)
 	if err != nil && rows > 0 {
-		c.JSON(http.StatusNotFound, gin.H{"data": "[]", "status": http.StatusNotFound, "message": err.Error()})
+		c.JSON(http.StatusOK, gin.H{"data": "[]", "status": "err", "message": err.Error()})
 		return
 	}
 	type Item struct {
@@ -195,7 +195,7 @@ func updateStocks(c *gin.Context) {
 		tipstores = -100
 	}
 	if len(uid) == 0 || (len(name) == 0 && tipstores == -100) {
-		c.JSON(http.StatusNotFound, gin.H{"data": "[]"})
+		c.JSON(http.StatusOK, gin.H{"data": "[]"})
 		return
 	}
 	matr := make(map[string]interface{})
@@ -211,7 +211,7 @@ func updateStocks(c *gin.Context) {
 	m[0] = matr
 	err = models.UpdateTableData("stores", m, cond)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"data": "[]", "status": http.StatusBadRequest, "message": err.Error()})
+		c.JSON(http.StatusOK, gin.H{"data": "[]", "status": "err", "message": err.Error()})
 		return
 	}
 	type Item struct {
@@ -292,7 +292,7 @@ func fetchAllContracts(c *gin.Context) {
 	}
 	rows, _, data, err := models.GetTable("contracts", pg-1, gate, cond)
 	if err != nil && rows > 0 {
-		c.JSON(http.StatusNotFound, gin.H{"data": "[]", "status": http.StatusNotFound, "message": err.Error()})
+		c.JSON(http.StatusOK, gin.H{"data": "[]", "status": "err", "message": err.Error()})
 		return
 	}
 
@@ -345,7 +345,7 @@ func updateContracts(c *gin.Context) {
 		dl = 0
 	}
 	if len(rowid) == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"data": "[]"})
+		c.JSON(http.StatusOK, gin.H{"data": "[]"})
 		return
 	}
 	cond["rowid"] = rowid
@@ -362,7 +362,7 @@ func updateContracts(c *gin.Context) {
 	m[0] = matr
 	err = models.UpdateTableData("contracts", m, cond)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"data": "[]", "status": http.StatusBadRequest, "message": err.Error()})
+		c.JSON(http.StatusOK, gin.H{"data": "[]", "status": "err", "message": err.Error()})
 		return
 	}
 
@@ -387,7 +387,7 @@ func updateContractGoods(c *gin.Context) {
 	var sm []Goods
 	// in this case proper binding will be automatically selected
 	if err := c.ShouldBindJSON(&sm); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "error": true, "message": "bad request " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"status": "err", "error": true, "message": "bad request " + err.Error()})
 		return
 	}
 	/*
@@ -406,11 +406,11 @@ func updateContractGoods(c *gin.Context) {
 	err := models.InsertTableData("contractgoods", matr, w)
 	if err != nil {
 		models.DbLog("err. ошибка обновления товаров в базу "+err.Error()+" "+time.Now().Format("2006-01-02T15:04:05"), "updateContractGoods", time.Now().UTC().UnixNano())
-		c.JSON(http.StatusNotAcceptable, gin.H{"status": http.StatusNotAcceptable, "error": true, "message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"status": "err", "error": true, "message": err.Error()})
 		return
 	}
 	models.DbLog("end. конец обновления товаров в базу "+time.Now().Format("2006-01-02T15:04:05"), "updateContractGoods", time.Now().UTC().UnixNano())
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "ok"})
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "ok"})
 }
 
 //fetchAllSalesmatrix выводит матрицу
@@ -513,7 +513,7 @@ func fetchAllSalesmatrix(c *gin.Context) {
 	}
 	rows, _, data, err := models.GetTable("salesmatrix", pg-1, gate, cond)
 	if err != nil && rows > 0 {
-		c.JSON(http.StatusNotFound, gin.H{"data": "[]", "status": http.StatusNotFound, "message": err.Error()})
+		c.JSON(http.StatusOK, gin.H{"data": "[]", "status": "err", "message": err.Error()})
 		return
 	}
 
@@ -586,7 +586,7 @@ func updateSalesmatrix(c *gin.Context) {
 		inuse = -1
 	}
 	if len(rowid) == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"data": "[]"})
+		c.JSON(http.StatusBadRequest, gin.H{"data": "[]", "message": "нет id строки"})
 		return
 	}
 	cond["rowid"] = rowid
@@ -612,7 +612,7 @@ func updateSalesmatrix(c *gin.Context) {
 	m[0] = matr
 	err = models.UpdateTableData("salesmatrix", m, cond)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"data": "[]", "status": http.StatusBadRequest, "message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"data": "[]", "status": "err", "message": err.Error()})
 		return
 	}
 
@@ -642,7 +642,7 @@ func updateGoods(c *gin.Context) {
 	var sm []Goods
 	// in this case proper binding will be automatically selected
 	if err := c.ShouldBindJSON(&sm); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "error": true, "message": "bad request " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"status": "err", "error": true, "message": "bad request " + err.Error()})
 		return
 	}
 	/*
@@ -662,11 +662,11 @@ func updateGoods(c *gin.Context) {
 	err := models.InsertTableData("goods", matr, w)
 	if err != nil {
 		models.DbLog("err. ошибка обновления товаров в базу "+err.Error()+" "+time.Now().Format("2006-01-02T15:04:05"), "updateGoods", time.Now().UTC().UnixNano())
-		c.JSON(http.StatusNotAcceptable, gin.H{"status": http.StatusNotAcceptable, "error": true, "message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"status": "err", "error": true, "message": err.Error()})
 		return
 	}
 	models.DbLog("end. конец обновления товаров в базу "+time.Now().Format("2006-01-02T15:04:05"), "updateGoods", time.Now().UTC().UnixNano())
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "ok"})
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "ok"})
 }
 
 //updateAnalog обновление Номенклатуры
@@ -679,7 +679,7 @@ func updateAnalog(c *gin.Context) {
 	var sm []Goods
 	// in this case proper binding will be automatically selected
 	if err := c.ShouldBindJSON(&sm); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "error": true, "message": "bad request " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"status": "err", "error": true, "message": "bad request " + err.Error()})
 		return
 	}
 	/*
@@ -701,11 +701,11 @@ func updateAnalog(c *gin.Context) {
 	err := models.InsertTableData("goodsanalog", matr, w)
 	if err != nil {
 		models.DbLog("err. ошибка обновления аналогов в базу "+err.Error()+" "+time.Now().Format("2006-01-02T15:04:05"), "updateAnalog", time.Now().UTC().UnixNano())
-		c.JSON(http.StatusNotAcceptable, gin.H{"status": http.StatusNotAcceptable, "error": true, "message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"status": "err", "error": true, "message": err.Error()})
 		return
 	}
 	models.DbLog("end. конец обновления аналогов в базу "+time.Now().Format("2006-01-02T15:04:05"), "updateAnalog", time.Now().UTC().UnixNano())
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "ok"})
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "ok"})
 }
 
 func fetchSingleGoods(c *gin.Context) {
@@ -715,7 +715,7 @@ func fetchSingleGoods(c *gin.Context) {
 	if len(goodsuid) > 0 {
 		gd, err := models.GetGood(goodsuid)
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": err.Error()})
+			c.JSON(http.StatusOK, gin.H{"status": "err", "message": err.Error()})
 			return
 		}
 		gds := make([]models.Goods, 1)
@@ -726,13 +726,13 @@ func fetchSingleGoods(c *gin.Context) {
 	}
 
 	if len(q) == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "нет запроса"})
+		c.JSON(http.StatusOK, gin.H{"status": "err", "message": "нет запроса"})
 		return
 
 	}
 	gds, err := models.GetGoods(q)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": err.Error()})
+		c.JSON(http.StatusOK, gin.H{"status": "err", "message": err.Error()})
 		return
 	}
 
@@ -744,10 +744,10 @@ func getNeuroData(c *gin.Context) {
 	storeuid := c.Param("store")
 	nr, err := models.LoadRbfNet(storeuid, goodsuid)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": err.Error()})
+		c.JSON(http.StatusOK, gin.H{"status": "err", "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusNotFound, nr)
+	c.JSON(http.StatusOK, nr)
 }
 
 func getPredict(c *gin.Context) {
@@ -755,10 +755,10 @@ func getPredict(c *gin.Context) {
 	storeuid := c.Param("store")
 	nr, err := models.GetLastPredict(storeuid, goodsuid)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": err.Error()})
+		c.JSON(http.StatusOK, gin.H{"status": "err", "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusNotFound, nr)
+	c.JSON(http.StatusOK, nr)
 }
 
 //setSales пишет продажи в базу
@@ -784,7 +784,7 @@ func setSales(c *gin.Context) {
 	var sm []Sales
 	// in this case proper binding will be automatically selected
 	if err := c.ShouldBindJSON(&sm); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "error": true, "message": "bad request " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"status": "err", "error": true, "message": "bad request " + err.Error()})
 		return
 	}
 	/*
@@ -805,12 +805,14 @@ func setSales(c *gin.Context) {
 		)
 	*/
 	matr := make([]map[string]interface{}, 0, 256)
+	lastuidstore := ""
 	for _, v := range sm {
 		m := make(map[string]interface{})
 		if id > 0 {
 			m["id"] = id
 		}
 		m["uidStore"] = v.Uidstore
+		lastuidstore = v.Uidstore
 		m["uidGoods"] = v.Uidgoods
 		if v.Period == "" {
 			m["period"] = time.Now().Format("2006-01-02T15:04:05")
@@ -820,7 +822,7 @@ func setSales(c *gin.Context) {
 				//формат даты другой
 				lper, err = time.Parse("2006-01-02T15:04:05", v.Period)
 				if err != nil {
-					c.JSON(http.StatusNotAcceptable, gin.H{"status": http.StatusNotAcceptable, "error": true, "message": "формат даты должен быть 2006-01-02T15:02:05" + err.Error()})
+					c.JSON(http.StatusBadRequest, gin.H{"status": "err", "error": true, "message": "формат даты должен быть 2006-01-02T15:02:05" + err.Error()})
 					return
 				}
 			}
@@ -849,15 +851,15 @@ func setSales(c *gin.Context) {
 	w["uidGoods"] = "="
 	w["period"] = "="
 	w["tipmov"] = "="
-	models.DbLog("beg. начало записи движений в базу "+time.Now().Format("2006-01-02T15:04:05"), "setSales", time.Now().UTC().UnixNano())
+	models.DbLog("beg. начало записи движений в базу "+lastuidstore+" записей: "+strconv.FormatInt(int64(len(matr)), 10)+" "+time.Now().Format("2006-01-02T15:04:05"), "setSales", time.Now().UTC().UnixNano())
 	err = models.InsRepSales(matr, w)
 	if err != nil {
-		models.DbLog("err. ошибка записи движений в базу "+err.Error()+" "+time.Now().Format("2006-01-02T15:04:05"), "setSales", time.Now().UTC().UnixNano())
-		c.JSON(http.StatusNotAcceptable, gin.H{"status": http.StatusNotAcceptable, "error": true, "message": err.Error()})
+		models.DbLog("err. ошибка записи движений в базу "+lastuidstore+" "+err.Error()+" "+time.Now().Format("2006-01-02T15:04:05"), "setSales", time.Now().UTC().UnixNano())
+		c.JSON(http.StatusBadRequest, gin.H{"status": "err", "error": true, "message": err.Error()})
 		return
 	}
-	models.DbLog("end. конец записи движений в базу "+time.Now().Format("2006-01-02T15:04:05"), "setSales", time.Now().UTC().UnixNano())
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "ok"})
+	models.DbLog("end. конец записи движений в базу "+lastuidstore+" "+time.Now().Format("2006-01-02T15:04:05"), "setSales", time.Now().UTC().UnixNano())
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "ok"})
 
 }
 
@@ -878,23 +880,23 @@ func mkorders(c *gin.Context) {
 			x := Fop.Val()
 			if int64(v) == x && x > 0 {
 				Fop.Set(-1 * x)
-				c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "seting Fop = " + strconv.FormatInt(Fop.Val(), 10)})
+				c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "seting Fop = " + strconv.FormatInt(Fop.Val(), 10)})
 			} else {
-				c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "bad stop signal. lookin for " + strconv.FormatInt(Fop.Val(), 10)})
+				c.JSON(http.StatusOK, gin.H{"status": "err", "message": "bad stop signal. lookin for " + strconv.FormatInt(Fop.Val(), 10)})
 			}
 		} else {
-			c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": " Atoi err = " + err.Error()})
+			c.JSON(http.StatusOK, gin.H{"status": "err", "message": " Atoi err = " + err.Error()})
 		}
 		return
 	}
 	if Fop.Val() != 0 {
 		//находимся в состоянии расчета. выводим это
-		c.JSON(http.StatusLocked, gin.H{"status": http.StatusLocked, "start": time.Unix(0, Fop.Val()).Format("2 Jan 2006 15:04:05"), "message": "в процессе составления заказа " + strconv.FormatInt(Fop.Val(), 10)})
+		c.JSON(http.StatusOK, gin.H{"status": "err", "start": time.Unix(0, Fop.Val()).Format("2 Jan 2006 15:04:05"), "message": "в процессе составления заказа " + strconv.FormatInt(Fop.Val(), 10)})
 		return
 	}
 	if start == "ok" {
 		go apiMakeOrders(store, goods)
-		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "запущен расчет " + time.Now().Format("2 Jan 2006 15:04:05") + store + goods})
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "запущен расчет " + time.Now().Format("2 Jan 2006 15:04:05") + store + goods})
 		return
 	}
 	slog := models.GetLastStateNetwork(3, "makeOrders")
@@ -910,7 +912,7 @@ func mkorders(c *gin.Context) {
 			status["err"] = time.Unix(0, int64(k)).Format("2 Jan 2006 15:04:05") + v[4:]
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "beg": status["beg"], "err": status["err"], "end": status["end"]})
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "beg": status["beg"], "err": status["err"], "end": status["end"]})
 }
 
 //getZakaz выгруит заказы в xml
@@ -925,7 +927,7 @@ func getZakaz(c *gin.Context) {
 	z, err := models.GetZakazXML(period)
 	if err != nil {
 		models.DbLog("err. ошибка выдачи заказов "+err.Error()+" "+time.Now().Format("2006-01-02T15:04:05"), "getZakaz", time.Now().UTC().UnixNano())
-		c.XML(http.StatusOK, gin.H{"error": err.Error()})
+		c.XML(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -939,7 +941,7 @@ func setABC(c *gin.Context) {
 	storeuid := c.Param("store")
 	if storeuid == "" {
 		errmessage = "не задан uid магазина "
-		c.JSON(http.StatusNotModified, gin.H{"status": http.StatusNotModified, "message": errmessage})
+		c.JSON(http.StatusOK, gin.H{"status": "err", "message": errmessage})
 		return
 	}
 	period1 := c.DefaultPostForm("dfrom", time.Now().AddDate(0, -3, 0).Format("2006-01-02"))
@@ -959,15 +961,15 @@ func setABC(c *gin.Context) {
 	err = apiRecalcABC(storeuid, period1, period2)
 	if err != nil {
 		models.DbLog("err. ошибка ABC анализа "+err.Error()+" "+time.Now().Format("2006-01-02T15:04:05"), "setABC", time.Now().UTC().UnixNano())
-		c.JSON(http.StatusNotModified, gin.H{"status": http.StatusNotModified, "message": errmessage + err.Error()})
+		c.JSON(http.StatusOK, gin.H{"status": "err", "message": errmessage + err.Error()})
 		return
 	}
 	models.DbLog("end. конец ABC анализа "+time.Now().Format("2006-01-02T15:04:05"), "setABC", time.Now().UTC().UnixNano())
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "ok"})
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "ok"})
 }
 
 func setsalesmatrix(c *gin.Context) {
-	//storeuid := c.Param("store")
+	storeuid := c.Param("store")
 	type Smatrix struct {
 		Uidstore string  `json:"uidstore" binding:"required"`
 		Uidgoods string  `json:"uidgoods" binding:"required"`
@@ -979,7 +981,7 @@ func setsalesmatrix(c *gin.Context) {
 	var sm []Smatrix
 	// in this case proper binding will be automatically selected
 	if err := c.ShouldBindJSON(&sm); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "error": true, "message": "bad request " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"status": "err", "error": true, "message": "bad request " + err.Error()})
 		return
 	}
 
@@ -1001,15 +1003,15 @@ func setsalesmatrix(c *gin.Context) {
 	w := make(map[string]string)
 	//w["uidStore"] = "="
 	//w["uidGoods"] = "="
-	models.DbLog("beg. начало обновления матрицы товаров "+time.Now().Format("2006-01-02T15:04:05"), "setsalesmatrix", time.Now().UTC().UnixNano())
+	models.DbLog("beg. начало обновления матрицы товаров "+storeuid+" "+time.Now().Format("2006-01-02T15:04:05"), "setsalesmatrix", time.Now().UTC().UnixNano())
 	err := models.ReplaceMatrix(matr, w)
 	if err != nil {
-		models.DbLog("err. ошибка обновления матрицы товаров "+err.Error()+" "+time.Now().Format("2006-01-02T15:04:05"), "setsalesmatrix", time.Now().UTC().UnixNano())
-		c.JSON(http.StatusNotAcceptable, gin.H{"status": http.StatusNotAcceptable, "error": true, "message": err.Error()})
+		models.DbLog("err. ошибка обновления матрицы товаров "+storeuid+" "+err.Error()+" "+time.Now().Format("2006-01-02T15:04:05"), "setsalesmatrix", time.Now().UTC().UnixNano())
+		c.JSON(http.StatusBadRequest, gin.H{"status": "err", "error": true, "message": err.Error()})
 		return
 	}
-	models.DbLog("end. конец обновления матрицы товаров "+time.Now().Format("2006-01-02T15:04:05"), "setsalesmatrix", time.Now().UTC().UnixNano())
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "ok"})
+	models.DbLog("end. конец обновления матрицы товаров "+storeuid+" "+time.Now().Format("2006-01-02T15:04:05"), "setsalesmatrix", time.Now().UTC().UnixNano())
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "ok"})
 }
 
 func setbalance(c *gin.Context) {
@@ -1023,7 +1025,7 @@ func setbalance(c *gin.Context) {
 	var sm []Sbalance
 	// in this case proper binding will be automatically selected
 	if err := c.ShouldBindJSON(&sm); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "error": true, "message": "bad request " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"status": "err", "error": true, "message": "bad request " + err.Error()})
 		return
 	}
 	matrbalance := make([]map[string]interface{}, 0, 256)
@@ -1038,16 +1040,16 @@ func setbalance(c *gin.Context) {
 		}
 	}
 
-	models.DbLog("beg. начало синхронизации баланса товаров "+time.Now().Format("2006-01-02T15:04:05"), "setbalance", time.Now().UTC().UnixNano())
+	models.DbLog("beg. начало синхронизации баланса товаров "+storeuid+" "+time.Now().Format("2006-01-02T15:04:05"), "setbalance", time.Now().UTC().UnixNano())
 	if len(matrbalance) > 0 {
 		err := models.UpdateBalance(matrbalance)
 		if err != nil {
-			models.DbLog("err. ошибка синхронизации баланса товаров "+err.Error()+" "+time.Now().Format("2006-01-02T15:04:05"), "setbalance", time.Now().UTC().UnixNano())
-			c.JSON(http.StatusNotAcceptable, gin.H{"status": http.StatusNotAcceptable, "error": true, "message": err.Error()})
+			models.DbLog("err. ошибка синхронизации баланса товаров "+storeuid+" "+err.Error()+" "+time.Now().Format("2006-01-02T15:04:05"), "setbalance", time.Now().UTC().UnixNano())
+			c.JSON(http.StatusBadRequest, gin.H{"status": "err", "error": true, "message": err.Error()})
 		}
 	}
-	models.DbLog("end. конец синхронизации баланса товаров "+time.Now().Format("2006-01-02T15:04:05"), "setbalance", time.Now().UTC().UnixNano())
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "ok"})
+	models.DbLog("end. конец синхронизации баланса товаров "+storeuid+" "+time.Now().Format("2006-01-02T15:04:05"), "setbalance", time.Now().UTC().UnixNano())
+	c.JSON(http.StatusCreated, gin.H{"status": "ok", "message": "ok"})
 }
 
 func setstores(c *gin.Context) {
@@ -1060,7 +1062,7 @@ func setstores(c *gin.Context) {
 	var sm []Stores
 	// in this case proper binding will be automatically selected
 	if err := c.ShouldBindJSON(&sm); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "error": true, "message": "bad request " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"status": "err", "error": true, "message": "bad request " + err.Error()})
 		return
 	}
 
@@ -1081,11 +1083,11 @@ func setstores(c *gin.Context) {
 	err := models.InsertTableData("stores", matr, w)
 	if err != nil {
 		models.DbLog("err. ошибка обновления магазинов "+err.Error()+" "+time.Now().Format("2006-01-02T15:04:05"), "setstores", time.Now().UTC().UnixNano())
-		c.JSON(http.StatusNotAcceptable, gin.H{"status": http.StatusNotAcceptable, "error": true, "message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"status": "err", "error": true, "message": err.Error()})
 		return
 	}
 	models.DbLog("end. конец обновления магазинов "+time.Now().Format("2006-01-02T15:04:05"), "setstores", time.Now().UTC().UnixNano())
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "ok"})
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "ok"})
 }
 
 func setordered(c *gin.Context) {
@@ -1099,7 +1101,7 @@ func setordered(c *gin.Context) {
 	var sm []Ordered
 	// in this case proper binding will be automatically selected
 	if err := c.ShouldBindJSON(&sm); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "error": true, "message": "bad request " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"status": "err", "error": true, "message": "bad request " + err.Error()})
 		return
 	}
 
@@ -1123,12 +1125,12 @@ func setordered(c *gin.Context) {
 		err = models.UpdateTableData("oper", m, cond)
 		if err != nil {
 			models.DbLog("err. ошибка обновления заказов "+err.Error()+" "+time.Now().Format("2006-01-02T15:04:05"), "setordered", time.Now().UTC().UnixNano())
-			c.JSON(http.StatusNotAcceptable, gin.H{"status": http.StatusNotAcceptable, "error": true, "message": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"status": "err", "error": true, "message": err.Error()})
 			return
 		}
 	}
 	models.DbLog("end. конец обновления заказов "+time.Now().Format("2006-01-02T15:04:05"), "setordered", time.Now().UTC().UnixNano())
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "ok"})
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "ok"})
 }
 
 //стартовая страница
@@ -1765,7 +1767,7 @@ func getOrder(c *gin.Context) {
 
 	recs, zakazs, err := models.GetZakaz(numdoc, 0, 0, "", "", "")
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -1995,7 +1997,7 @@ func usertab(c *gin.Context) {
 	case "GET":
 		rows, _, data, err := models.GetTable("users", pg-1, gate, "")
 		if err != nil && rows > 0 {
-			c.JSON(http.StatusNotFound, gin.H{"data": "[]", "status": http.StatusNotFound, "message": err.Error()})
+			c.JSON(http.StatusOK, gin.H{"data": "[]", "status": "err", "message": err.Error()})
 			return
 		}
 
@@ -2031,7 +2033,7 @@ func usertab(c *gin.Context) {
 		m = append(m, matr)
 		err := models.InsertTableData("users", m, cond)
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"data": "[]", "status": http.StatusNotFound, "message": err.Error()})
+			c.JSON(http.StatusOK, gin.H{"data": "[]", "status": "err", "message": err.Error()})
 		}
 		var i Item
 		r, _ := strconv.Atoi(rowid)
@@ -2054,7 +2056,7 @@ func usertab(c *gin.Context) {
 			}
 		}
 		if len(cond) == 0 {
-			c.JSON(http.StatusNotFound, gin.H{"data": "[]", "status": http.StatusNotFound, "message": "ошибка передачи параметров"})
+			c.JSON(http.StatusOK, gin.H{"data": "[]", "status": "err", "message": "ошибка передачи параметров"})
 			return
 		}
 		matr["name"] = name
@@ -2066,7 +2068,7 @@ func usertab(c *gin.Context) {
 		m = append(m, matr)
 		err := models.UpdateTableData("users", m, cond)
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"data": "[]", "status": http.StatusNotFound, "message": err.Error()})
+			c.JSON(http.StatusOK, gin.H{"data": "[]", "status": "err", "message": err.Error()})
 			return
 		}
 		var i Item
@@ -2089,7 +2091,7 @@ func usertab(c *gin.Context) {
 		}
 		err := models.DeleteTableData("users", cond)
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"data": "[]", "status": http.StatusNotFound, "message": err.Error()})
+			c.JSON(http.StatusOK, gin.H{"data": "[]", "status": "err", "message": err.Error()})
 		}
 	}
 

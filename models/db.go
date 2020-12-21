@@ -1395,19 +1395,20 @@ func UpdateBalance(matr []map[string]interface{}) error {
 		}
 		groupGoods := v["groupGoods"].(string)
 		var period string = "1970-01-01"
-		rows, err := dbGetRow("select g.id as id, g.balance as balance, g.period as period from goodsmov as g WHERE g.uidStore=$1 and g.uidGoods=$2 order by g.period DESC limit 1;", uidStore, uidGoods)
+		rows, err := dbGetRow("select g.id as id, g.balance as balance, g.period as period from goodsmov as g WHERE g.uidStore=$1 and g.uidGoods=$2 order by g.period DESC, g.id DESC limit 1;", uidStore, uidGoods)
 		if err == nil {
 			if rows != nil {
 				if rows["balance"].(float64) != balance {
 					//обновим
 					period, ok = rows["period"].(string)
-					if !ok {
-						period = "1970-01-01"
-					}
-					id, ok := rows["id"].(int64)
+					//if !ok {
+					//	period = "1970-01-01"
+					//}
+					//id, ok := rows["id"].(int64)
 					if ok {
 						//query=query+"UPDATE goodsmov set balance="+strconv.FormatFloat(balance, 'f', -1, 64)+" WHERE id="+strconv.FormatInt(id,10)+";"
-						_, err := Tx.Exec("UPDATE goodsmov set balance=$1 WHERE id=$2;", balance, id)
+						//_, err := Tx.Exec("UPDATE goodsmov set balance=$1 WHERE id=$2;", balance, id)
+						_, err := Tx.Exec("UPDATE goodsmov set balance=$1 WHERE uidStore=$2 and uidGoods=$3 and period=$4;", balance, uidStore, uidGoods, period)
 						if err != nil {
 							Tx.Rollback()
 							return err
