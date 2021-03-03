@@ -1,11 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"encoding/xml"
 	"flag"
 	"strings"
 
 	"net/http"
+	"net/url"
 	"sort"
 
 	"strconv"
@@ -21,7 +23,7 @@ import (
 )
 
 //Version версия программы
-const Version = "0.5.6"
+const Version = "0.5.10"
 
 //Mcalc флаг работы функции calculate
 type Mcalc struct {
@@ -52,6 +54,86 @@ var Fop Mcalc
 
 //Users  пользователи
 var Users []models.User
+
+//func getJSON(url string, target interface{}) error {
+//	var myClient = &http.Client{Timeout: 10 * time.Second}
+//	r, err := myClient.Get(url)
+//	if err != nil {
+//		return err
+//	}
+//	defer r.Body.Close()
+//
+//	return json.NewDecoder(r.Body).Decode(target)
+//}
+
+//getOdata
+func getPartnerOdata(c *gin.Context) {
+	/*
+		{"odata.metadata": "http://192.168.0.240/base83/odata/standard.odata/$metadata#Catalog_Контрагенты",
+			"value": [{
+			"Ref_Key": "5b60a181-c621-11e8-b477-708bcd7bb395",
+			"ИНН": "7724444540",
+			"КПП": "772401001",
+			"НаименованиеПолное": "ООО\"Акватория\"",
+			"Партнер_Key": "5b60a180-c621-11e8-b477-708bcd7bb395"
+			}]
+		}
+	*/
+
+	type val struct {
+		RefKey     string `json:"Ref_Key" binding:"required"`
+		Inn        string `json:"ИНН" binding:"required"`
+		Kpp        string `json:"КПП" binding:"required"`
+		Name       string `json:"Description" binding:"required"`
+		PartnerKey string `json:"Партнер_Key" binding:"required"`
+	}
+	type contr struct {
+		Meta  string `json:"odata.metadata"`
+		Value []val  `json:"value"`
+	}
+
+	conf, err := models.GetConfig()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"status": "err", "message": err.Error()})
+		return
+	}
+	surl := conf["urlodata"] //http://192.168.0.240/base83/
+	if !strings.HasSuffix(surl, "/") {
+		surl += "/"
+	}
+	u, err := url.Parse(surl)
+	if err != nil {
+		//log.Println("Malformed URL: ", err.Error())
+		c.JSON(http.StatusOK, gin.H{"status": "err", "message": err.Error()})
+		return
+	}
+	inn := c.DefaultQuery("inn", "")
+	name := c.DefaultQuery("name", "")
+
+	params := url.Values{}
+	if len(inn) > 0 {
+		params.Add("$filter", "ИНН eq '"+inn+"'")
+	}
+	if len(name) > 0 {
+		params.Add("$filter", "like(Description,'"+name+"%')")
+	}
+	params.Add("$select", "Ref_Key,ИНН,КПП,НаименованиеПолное,Партнер_Key")
+	params.Add("$orderby", "Description")
+	params.Add("$format", "json")
+	u.RawQuery = params.Encode()
+	u.Path += "odata/standard.odata/Catalog_Контрагенты"
+	contrdata := contr{}
+	//get json odata
+	var myClient = &http.Client{Timeout: 10 * time.Second}
+	r, err := myClient.Get(u.String())
+	if err != nil {
+		return
+	}
+	defer r.Body.Close()
+	json.NewDecoder(r.Body).Decode(&contrdata)
+	v := contrdata.Value
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "data": v})
+}
 
 //calculate прогнозирунт продажи, lkc-коф для сети, отношение входных нейронов к скрытым, progper-количество дней прогноза
 func calculate(c *gin.Context) {
@@ -236,6 +318,7 @@ func fetchAllContracts(c *gin.Context) {
 		Recname      string `json:"recname" binding:"required"`
 		Chedord      string `json:"chedord" binding:"required"`
 		Delivdays    int64  `json:"delivdays" binding:"required"`
+		Autoord      int64  `json:"autoord" binding:"required"`
 	}
 	rowid := c.DefaultQuery("rowid", "")
 	_, err := strconv.Atoi(rowid)
@@ -308,6 +391,7 @@ func fetchAllContracts(c *gin.Context) {
 		i.Recname = (v[4]).(string)
 		i.Chedord = (v[5]).(string)
 		i.Delivdays = (v[6]).(int64)
+		i.Autoord = (v[7]).(int64)
 		Items = append(Items, i)
 	}
 
@@ -324,6 +408,7 @@ func updateContracts(c *gin.Context) {
 		Recname      string `json:"recname" binding:"required"`
 		Chedord      string `json:"chedord" binding:"required"`
 		Delivdays    int64  `json:"delivdays" binding:"required"`
+		Autoord      int64  `json:"autoord" binding:"required"`
 	}
 	matr := make(map[string]interface{})
 	cond := make(map[string]string)
@@ -338,6 +423,11 @@ func updateContracts(c *gin.Context) {
 	provider := c.PostForm("provider")
 	recipient := c.PostForm("recipient")
 	chedord := c.PostForm("chedord")
+	autoord := c.PostForm("autoord")
+	iautoord := 0
+	if autoord != "0" && autoord != "" {
+		iautoord = 1
+	}
 	delivdays := c.PostForm("delivdays")
 	dl, err := strconv.Atoi(delivdays)
 	if err != nil {
@@ -349,6 +439,7 @@ func updateContracts(c *gin.Context) {
 		return
 	}
 	cond["rowid"] = rowid
+	matr["autoord"] = iautoord
 	if len(chedord) > 0 {
 		matr["chedord"] = chedord
 	}
@@ -361,6 +452,131 @@ func updateContracts(c *gin.Context) {
 	m := make([]map[string]interface{}, 1)
 	m[0] = matr
 	err = models.UpdateTableData("contracts", m, cond)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"data": "[]", "status": "err", "message": err.Error()})
+		return
+	}
+
+	var i Item
+	i.ROWID = int64(rid)
+	i.Provider = provider
+	i.Recipient = recipient
+	i.Providername = providername
+	i.Recname = recname
+	i.Chedord = chedord
+	i.Delivdays = int64(dl)
+	i.Autoord = int64(iautoord)
+	c.JSON(http.StatusOK, i)
+}
+
+//insertContracts обновление контрактов
+func insertContracts(c *gin.Context) {
+	type Item struct {
+		ROWID        int64  `json:"rowid" binding:"required"`
+		Provider     string `json:"provider" binding:"required"`
+		Recipient    string `json:"recipient" binding:"required"`
+		Providername string `json:"providername" binding:"required"`
+		Recname      string `json:"recname" binding:"required"`
+		Chedord      string `json:"chedord" binding:"required"`
+		Delivdays    int64  `json:"delivdays" binding:"required"`
+		Autoord      int64  `json:"autoord" binding:"required"`
+	}
+
+	recname := c.PostForm("recname")
+	providername := c.PostForm("providername")
+	provider := c.PostForm("provider")
+	recipient := c.PostForm("recipient")
+	chedord := c.PostForm("chedord")
+	delivdays := c.PostForm("delivdays")
+	autoord := c.PostForm("autoord")
+	iautoord := 0
+	if autoord == "1" {
+		iautoord = 1
+	}
+	dl, err := strconv.Atoi(delivdays)
+	if err != nil {
+		delivdays = ""
+		dl = 0
+	}
+
+	var m = new(models.Contract)
+	m.Provider = provider
+	m.Recipient = recipient
+	m.Chedord = chedord
+	m.Delivdays = dl
+	m.ProviderName = providername
+	m.Autoord = iautoord
+
+	rid, err := models.CreateContract(m)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"data": "[]", "status": "err", "message": err.Error()})
+		return
+	}
+
+	var i Item
+	i.ROWID = int64(rid)
+	i.Provider = provider
+	i.Recipient = recipient
+	i.Providername = providername
+	i.Recname = recname
+	i.Chedord = chedord
+	i.Delivdays = int64(dl)
+	i.Autoord = int64(iautoord)
+	c.JSON(http.StatusOK, i)
+}
+
+//deleteContracts обновление контрактов
+func deleteContracts(c *gin.Context) {
+	type Item struct {
+		ROWID        int64  `json:"rowid" binding:"required"`
+		Provider     string `json:"provider" binding:"required"`
+		Recipient    string `json:"recipient" binding:"required"`
+		Providername string `json:"providername" binding:"required"`
+		Recname      string `json:"recname" binding:"required"`
+		Chedord      string `json:"chedord" binding:"required"`
+		Delivdays    int64  `json:"delivdays" binding:"required"`
+	}
+	/*rowid: 62
+	provider: 000000
+	recipient: 701730dc-d220-11e4-b02b-3085a9a9595a
+	providername: eeee
+	recname: Центральный склад "Крупский"
+	chedord: 0 9 * * 7
+	delivdays: 1
+	autoord: 1*/
+
+	rowid := c.PostForm("rowid")
+	rid, err := strconv.Atoi(rowid)
+	if err != nil {
+		rowid = ""
+		rid = 0
+	}
+	recname := c.PostForm("recname")
+	providername := c.PostForm("providername")
+	provider := c.PostForm("provider")
+	recipient := c.PostForm("recipient")
+	chedord := c.PostForm("chedord")
+	delivdays := c.PostForm("delivdays")
+	autoord := c.PostForm("autoord")
+	iautoord := 0
+	if autoord == "1" {
+		iautoord = 1
+	}
+	dl, err := strconv.Atoi(delivdays)
+	if err != nil {
+		delivdays = ""
+		dl = 0
+	}
+
+	var m = new(models.Contract)
+	m.Provider = provider
+	m.Recipient = recipient
+	m.Chedord = chedord
+	m.Delivdays = dl
+	m.ProviderName = providername
+	m.Autoord = iautoord
+
+	err = models.DeleteContract(rid)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"data": "[]", "status": "err", "message": err.Error()})
 		return
@@ -899,17 +1115,27 @@ func mkorders(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "запущен расчет " + time.Now().Format("2 Jan 2006 15:04:05") + store + goods})
 		return
 	}
-	slog := models.GetLastStateNetwork(3, "makeOrders")
-	status := make(map[string]string, 3)
-	status["err"] = "no"
+	slog := models.GetLastStateNetwork(50, "makeOrders")
+	status := make(map[string]string, 4)
+	//status["err"] = "no"
 	for k, v := range slog {
 		switch v[:3] {
 		case "end":
-			status["end"] = time.Unix(0, int64(k)).Format("2 Jan 2006 15:04:05") + v[4:]
+			if _, ok := status["end"]; !ok {
+				status["end"] = time.Unix(0, int64(k)).Format("2 Jan 2006 15:04:05") + v[4:]
+			}
 		case "beg":
-			status["beg"] = time.Unix(0, int64(k)).Format("2 Jan 2006 15:04:05") + v[4:]
+			if _, ok := status["beg"]; !ok {
+				status["beg"] = time.Unix(0, int64(k)).Format("2 Jan 2006 15:04:05") + v[4:]
+			}
+		case "err":
+			if _, ok := status["err"]; !ok {
+				status["err"] = time.Unix(0, int64(k)).Format("2 Jan 2006 15:04:05") + v[4:]
+			}
 		default:
-			status["err"] = time.Unix(0, int64(k)).Format("2 Jan 2006 15:04:05") + v[4:]
+			if _, ok := status["beg"]; !ok { //если до начала не дошли, то пишем
+				status["do"] = time.Unix(0, int64(k)).Format("2 Jan 2006 15:04:05") + v[4:]
+			}
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "beg": status["beg"], "err": status["err"], "end": status["end"]})
@@ -1149,12 +1375,12 @@ func startPage(c *gin.Context) {
 
 	if len(conf) == 0 {
 		//переходим на страницу конфигурации
-		c.Request.URL.Path = "/config"
+		c.Request.URL.Path = "/admin/config"
 		//api.HandleContext(c)
 		//c.Redirect(http.StatusContinue, "config")
 	}
 
-	lastdblog := models.GetLastStateNetwork(7, "")
+	lastdblog := models.GetLastStateNetwork(15, "")
 	ki := make([]int, 0, len(lastdblog))
 	for k := range lastdblog {
 		ki = append(ki, k)
@@ -1250,6 +1476,10 @@ func tablesPage(c *gin.Context) {
 	hdata["PageSize"] = gate //strconv.FormatInt(int64(gate), 10)
 	hdata["PageIndex"] = pg  //strconv.FormatInt(int64(pg), 10)
 	hdata["Tabname"] = tabName
+	hdata["Inserting"] = false
+	if tabName == "contracts" {
+		hdata["Inserting"] = true
+	}
 	hdata["Rutabname"] = RuName(tabName)
 	var fields string
 	//для каждой таблицы строим свои заголовки
@@ -1272,18 +1502,43 @@ func tablesPage(c *gin.Context) {
 	case "contracts":
 		fields = `[
             { name: "ROWID", title:"ИД",type: "text", editing: false,visible: false,width: 50 },
-            { name: "provider", type: "text",editing: false,visible: false, width: 150 },
-			{ name: "recipient", type: "text", editing: false,visible: false, width: 150 },
+            { name: "provider", type: "text", title:"uid Поставщика",editing: true,visible: true, width: 150 },
+			{ name: "recipient", type: "text", title:"uid Получателя",editing: true,visible: true, width: 150 },
 			{ name: "providername", title:"Поставщик",type: "text", width: 170 },
-			{ name: "recname", title:"Получатель",type: "text", width: 170 },
-			{ name: "chedord", title:"График заказов",type: "text", width: 100 },
-			{ name: "delivdays", title:"Дней доставки",type: "number", width: 30 },
+			{ name: "recname", title:"Получатель",type: "text", editing: false,width: 170 },
+			{ name: "chedord", title:"График заказов",type: "text", width: 80 },
+			{ name: "delivdays", title:"Дней дост.",type: "number", width: 30 },
+			{ name: "autoord", title:"авто",type: "number", width: 30 },
             { type: "control",deleteButton:false }
 		]`
+		/*
+		   { name: "providername", title:"Поставщик",type: "select", width: 170, items:dataContr,valueField:"prodCatId",textField:"prodCatDesc",
+		   editTemplate: function(){
+		   	var sbuField = this._grid.fields[0];
+		   	var $editControl = jsGrid.fields.select.prototype.editTemplate.call(this,arguments);
+
+		       $editControl.on("change", function(){
+		   		var inn = sbuField.editControl[0].value;
+		        	var name = $(this).val();
+		        	$.ajax({
+		         		type: "POST",
+		          		url: "/api/controdata/",
+		          		data:{"inn":inn,"name":name},
+		          		success: function(data){
+		           		dataContr =  data
+		          		},
+		          		error : function(error){alert('error')}
+		   		});
+		       });
+		       return $editControl;
+		   }
+		   },
+		   }
+		*/
 	case "salesmatrix":
 		fields = `[
             { name: "ROWID", title:"ИД",type: "text", editing: false,visible: false,width: 50 },
-            { name: "uidStore", type: "text",editing: false,visible: false, width: 100 },
+            { name: "uidStore", type: "text",editing: false,visible: false, width: 0 },
 			{ name: "storename", title:"Склад",type: "text", editing: false, width: 120 },
 			{ name: "uidGoods", title:"uidТовара",editing:false,visible:false,type:"text",width:100 },
 			{ name: "goodsgroup", title:"Группа",editing:false,visible:true,type:"text",width:60 },
@@ -1293,6 +1548,8 @@ func tablesPage(c *gin.Context) {
 			{ name: "maxbalance", title:"Макс. остаток",type: "number", width: 50 },
 			{ name: "inuse", title:"Для продажи",type: "select", items: [{ Name:"",Id:-1},{ Name:"Нет",Id:0},{Name:"Да",Id:1}], valueField:"Id",textField:"Name",width:50 },
 			{ name: "abc", title:"ABC",type: "text", width: 30 },
+			{ name: "step", type: "text",visible: false, width: 0 },
+			{ name: "demand", type: "text",visible: false, width: 0 },
             { type: "control",deleteButton:false }
 		]`
 	case "contactgoods":
@@ -1933,55 +2190,20 @@ func usersPage(c *gin.Context) {
 
 //usertab работа со списком пользователей
 func usertab(c *gin.Context) {
-	type Item struct {
-		ROWID    int64  `json:"rowid" binding:"required"`
-		Name     string `json:"name" binding:"required"`
-		Password string `json:"pass" binding:"required"`
-		Email    string `json:"email" binding:"-"`
-		Intro    string `json:"intro" binding:"-"`
-		Group    string `json:"group" binding:"required"`
-	}
 
-	rowid := c.DefaultQuery("rowid", "")
-	if rowid == "" {
-		rowid = c.DefaultPostForm("rowid", "")
+	var rowid string
+	var user = models.User{}
+	if c.Request.Method == "DELETE" || c.Request.Method == "GET" {
+		rowid = c.Query("rowid")
+		r, _ := strconv.Atoi(rowid)
+		user.ROWID = int64(r)
+		user.Name = c.Query("name")
+		user.Group = c.Query("group")
+		user.Email = c.Query("rowid")
+	} else {
+		c.ShouldBind(&user)
 	}
-	//не число?
-	_, err := strconv.Atoi(rowid)
-	if err != nil {
-		rowid = ""
-	}
-
-	name := c.DefaultQuery("name", "")
-	if name == "" {
-		name = c.DefaultPostForm("name", "")
-	}
-	pass := c.DefaultQuery("pass", "")
-	if pass == "" {
-		pass = c.DefaultPostForm("pass", "")
-	}
-	email := c.DefaultQuery("email", "")
-	if email == "" {
-		email = c.DefaultPostForm("email", "")
-	}
-	intro := c.DefaultQuery("intro", "")
-	if intro == "" {
-		intro = c.DefaultPostForm("intro", "")
-	}
-	group := c.DefaultQuery("group", "")
-	if group == "" {
-		group = c.DefaultPostForm("group", "")
-	}
-	cond := ""
-	if len(rowid) > 0 {
-		cond = "rowid=" + rowid
-	}
-	if len(name) > 0 {
-		if len(cond) > 0 {
-			cond = cond + " and "
-		}
-		cond = cond + "name='" + name + "'"
-	}
+	rowid = strconv.FormatInt(user.ROWID, 10)
 
 	spg := c.DefaultQuery("pageIndex", "1")
 	pg, err := strconv.Atoi(spg)
@@ -1995,20 +2217,38 @@ func usertab(c *gin.Context) {
 	}
 	switch c.Request.Method {
 	case "GET":
-		rows, _, data, err := models.GetTable("users", pg-1, gate, "")
+		cond := ""
+		and := ""
+		/*
+			if user.ROWID > 0 {
+				cond = "rowid=" + rowid
+				and = " and "
+			}*/
+		if len(user.Name) > 0 {
+			cond = cond + and + "name='" + user.Name + "'"
+			and = " and "
+		}
+		if len(user.Group) > 0 {
+			cond = cond + and + "usergroup='" + user.Group + "'"
+			and = " and "
+		}
+		if len(user.Email) > 0 {
+			cond = cond + and + "email='" + user.Email + "'"
+		}
+		rows, _, data, err := models.GetTable("users", pg-1, gate, cond)
 		if err != nil && rows > 0 {
 			c.JSON(http.StatusOK, gin.H{"data": "[]", "status": "err", "message": err.Error()})
 			return
 		}
 
-		Items := make([]Item, 0, len(data))
+		Items := make([]models.User, 0, len(data))
 		//нулевая строка содержит имена полей, пропускаем
 		for r := 1; r < len(data); r++ {
-			i := Item{}
+			i := models.User{}
 			v := data[r]
 			i.ROWID = (v[0]).(int64)
 			i.Name = (v[1]).(string)
-			i.Password = (v[2]).(string)
+			i.Pass = (v[2]).(string)
 			i.Email = (v[3]).(string)
 			i.Intro = (v[4]).(string)
 			i.Group = (v[5]).(string)
@@ -2016,34 +2256,16 @@ func usertab(c *gin.Context) {
 		}
 
 		c.JSON(http.StatusOK, gin.H{"data": Items, "itemsCount": rows})
+		return
 	case "POST":
 		//insert
-		matr := make(map[string]interface{})
-		cond := make(map[string]string)
-		if len(name) > 0 {
-			cond["name"] = "="
-		}
-
-		matr["name"] = name
-		matr["pass"] = pass
-		matr["email"] = email
-		matr["intro"] = intro
-		matr["usergroup"] = group
-		m := make([]map[string]interface{}, 0, 16)
-		m = append(m, matr)
-		err := models.InsertTableData("users", m, cond)
+		last, err := models.CreateUser(&user)
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{"data": "[]", "status": "err", "message": err.Error()})
 		}
-		var i Item
-		r, _ := strconv.Atoi(rowid)
-		i.ROWID = int64(r)
-		i.Name = name
-		i.Password = pass
-		i.Group = group
-		i.Email = email
-		i.Intro = intro
-		c.JSON(http.StatusOK, i)
+		user.ROWID = last
+		c.JSON(http.StatusOK, user)
+		return
 	case "PUT":
 		//update
 		matr := make(map[string]interface{})
@@ -2051,19 +2273,19 @@ func usertab(c *gin.Context) {
 		if len(rowid) > 0 {
 			cond["rowid"] = rowid
 		} else {
-			if len(name) > 0 {
-				cond["name"] = name
+			if len(user.Name) > 0 {
+				cond["name"] = user.Name
 			}
 		}
 		if len(cond) == 0 {
 			c.JSON(http.StatusOK, gin.H{"data": "[]", "status": "err", "message": "ошибка передачи параметров"})
 			return
 		}
-		matr["name"] = name
-		matr["pass"] = pass
-		matr["email"] = email
-		matr["intro"] = intro
-		matr["usergroup"] = group
+		matr["name"] = user.Name
+		matr["pass"] = user.Pass
+		matr["email"] = user.Email
+		matr["intro"] = user.Intro
+		matr["usergroup"] = user.Group
 		m := make([]map[string]interface{}, 0, 16)
 		m = append(m, matr)
 		err := models.UpdateTableData("users", m, cond)
@@ -2071,28 +2293,24 @@ func usertab(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"data": "[]", "status": "err", "message": err.Error()})
 			return
 		}
-		var i Item
-		r, _ := strconv.Atoi(rowid)
-		i.ROWID = int64(r)
-		i.Name = name
-		i.Password = pass
-		i.Group = group
-		i.Email = email
-		i.Intro = intro
-		c.JSON(http.StatusOK, i)
+		c.JSON(http.StatusOK, user)
+		return
 	case "DELETE":
 		cond := make(map[string]string)
-		if len(rowid) > 0 {
-			cond["rowid"] = rowid
+		if user.ROWID > 0 {
+			cond["rowid"] = "=" + rowid
 		} else {
-			if len(name) > 0 {
-				cond["name"] = name
+			if len(user.Name) > 0 {
+				cond["name"] = "='" + user.Name + "'"
 			}
 		}
-		err := models.DeleteTableData("users", cond)
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"data": "[]", "status": "err", "message": err.Error()})
+		if len(cond) > 0 {
+			err := models.DeleteTableData("users", cond)
+			if err != nil {
+				c.JSON(http.StatusOK, gin.H{"data": "[]", "status": "err", "message": err.Error()})
+			}
 		}
+
 	}
 
 }
@@ -2208,7 +2426,9 @@ func main() {
 		//api.DELETE("stores/", deleteStocks)
 
 		api.GET("contracts/", fetchAllContracts)
+		api.DELETE("contracts/", deleteContracts)
 		api.PUT("contracts/", updateContracts)
+		api.POST("contracts/", insertContracts)
 		api.POST("contractgoods/", updateContractGoods)
 
 		api.GET("salesmatrix/", fetchAllSalesmatrix)
@@ -2229,7 +2449,7 @@ func main() {
 		api.GET("getorders/", getZakaz)
 		api.GET("getorder/:numdoc", getOrder)
 
-		//api.DELETE("goods/:id", DeleteProduct)
+		api.GET("partnerodata/", getPartnerOdata)
 	}
 	router.Run(portstr)
 

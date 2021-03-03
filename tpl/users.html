@@ -1,0 +1,174 @@
+{{template "base" .}}
+{{define "title"}}Пользователи{{end}}
+{{define "pagestyle"}}
+<style type="text/css">
+#tab_div {
+min-height:350px;
+}
+
+</style>
+{{end}}
+{{define "content"}}
+<div class="container">
+<h1>Пользователи</h1>
+{{if .Error}}
+	<div class="alert alert-danger" role="alert">
+	  {{.Error}}
+	</div>
+{{end}}
+  <div id="tab_divcons"></div>
+          <div id="tab_div"></div>
+		  
+	
+	<button type="button" class="btn btn-primary" data-toggle="modal" data-target="#addUser">Новый</button>
+
+<!-- Modal -->
+<div class="modal fade" id="addUser" tabindex="-1" role="dialog" aria-labelledby="addUserLabel" aria-hidden="true">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="addUserLabel">Новый пользователь</h5>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="detailsForm" novalidate="novalidate">
+        <div class="form-group">
+            <label for="name">Имя:</label>
+            <input id="name" name="name" type="text" class="form-control">
+        </div>
+        <div class="form-group">
+            <label for="pass">Пароль:</label>
+            <input id="pass" name="pass" type="text" class="form-control">
+        </div>
+        <div class="form-group">
+            <label for="email">email:</label>
+            <input id="email" name="email" type="text" class="form-control">
+        </div>
+        <div class="form-group">
+            <label for="group">Группа:</label>
+            <select id="group" name="group" class="form-control">
+                <option value="">(Группа)</option>
+                <option value="admin">admin</option>
+                <option value="finance">finance</option>
+                <option value="manager">manager</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="intro">Описание</label>
+            <input id="intro" name="intro" type="text" class="form-control">
+        </div>
+        
+    </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">Закрыть</button>
+        <button type="button" class="btn btn-primary" id="saveNewUser">Сохранить</button>
+      </div>
+    </div>
+  </div>
+</div>
+		  
+		  
+</div>
+{{end}}
+{{define "jscript"}}
+<script type="text/javascript">
+$(function() {
+	var db =
+	{
+		loadData: function(filter) {
+			return $.ajax({
+				type: "GET",
+				url: "/admin/usertab/",
+				data: filter
+			});
+		},
+		insertItem: function(item) {
+			return $.ajax({
+				type: "POST",
+				url: "/admin/usertab/",
+				data: item
+			});
+		},
+		updateItem: function(item) {
+			return $.ajax({
+				type: "PUT",
+				url: "/admin/usertab/",
+				data: item
+			});
+		},
+		deleteItem: function(item) {
+			return $.ajax({
+				type: "DELETE",
+				url: "/admin/usertab/?rowid="+item.rowid+"&name="+item.name,
+				data: item
+			});
+		},
+	};
+ 
+    $("#tab_div").jsGrid({
+        height: "92%",
+        width: "100%",
+ 
+        filtering: true,
+        editing: true,
+        sorting: true,
+        paging: true,
+        autoload: true,
+ 
+        pageSize: 25,
+        pageButtonCount: 5,
+ 
+        deleteConfirm: "Вы действительно хотите удалить запись?",
+		noDataContent: "Ничего нет :(",
+		
+        controller: db,
+		pageLoading :true,
+
+        fields: [
+		{ name: "ROWID", title:"ИД",type: "text", editing: false,visible: false,width: 50 },
+			{ name: "name", title:"Имя",type: "text", width: 170 },
+			{ name: "pass", title:"Пароль",type: "text", width: 100 },
+			{ name: "email", title:"email",type: "text", width: 100 },
+			{ name: "intro", title:"Описание",type: "text", width: 150 },
+			{ name: "group", title:"Группа",type: "select", items:[{Name:"",Id:""},{Name:"admin",Id:"admin"},{Name:"finance",Id:"finance"},{Name:"manager",Id:"manager"}],valueField:"Id",textField:"Name",width: 150 },
+            { type: "control",deleteButton:true,
+				editButtonTooltip: "Изменить",                      // tooltip of edit item button
+				deleteButtonTooltip: "Удалить",                  // tooltip of delete item button
+				searchButtonTooltip: "Найти",                  // tooltip of search button
+				clearFilterButtonTooltip: "Очистить",       // tooltip of clear filter button
+				insertButtonTooltip: "Вставить",                  // tooltip of insert button
+				updateButtonTooltip: "Обновить",                  // tooltip of update item button
+				cancelEditButtonTooltip: "отменить",
+				editButton: true,                               // show edit button
+				deleteButton: true,                             // show delete button
+				clearFilterButton: true,                        // show clear filter button
+				modeSwitchButton: true,  
+				headerTemplate: function() {
+                    return $("<button>").attr("type", "button").text("Новый")
+                            .on("click", function () {
+                                $('#addUser').modal('show');
+                            });
+                }
+			}
+		]
+    });
+ 
+  
+    $("#saveNewUser").on("click",function(){
+		let client={};
+		$.extend(client, {
+            name: $("#name").val(),
+            pass: $("#pass").val(),
+            email: $("#email").val(),
+            intro: $("#intro").val(),
+            group: $("#group").val()
+        });
+		$("#tab_div").jsGrid("insertItem", client);
+         $("#addUser").modal("hide");
+	});
+});
+</script>
+{{end}}

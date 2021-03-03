@@ -17,11 +17,12 @@ var DB *sql.DB
 
 // User stores information of a users
 type User struct {
-	Name  string `json:"name"`
-	Pass  string `json:"pass"`
-	Group string `json:"group"`
-	Email string `json:"email"`
-	Intro string `json:"intro"`
+	ROWID int64  `form:"rowid" json:"rowid" binding:"-"`
+	Name  string `form:"name" json:"name" binding:"required"`
+	Pass  string `form:"pass" json:"pass" binding:"required"`
+	Email string `form:"email" json:"email" binding:"-"`
+	Intro string `form:"intro" json:"intro" binding:"-"`
+	Group string `form:"group" json:"group" binding:"required"`
 }
 
 //ZakazGoods строки заказа
@@ -114,6 +115,10 @@ type Contract struct {
 	Cheddeliv string
 	//Delivdays количество дней от заказа до поставки
 	Delivdays int
+	//ProviderName имя
+	ProviderName string
+	//Autoord автозаказ
+	Autoord int
 }
 
 // Goods Описание товаров
@@ -148,6 +153,8 @@ type MatrixGoods struct {
 	PredDemand float64
 	//Step кратность упаковки товара
 	Step float64
+	//Need сумма нехватки товара в магазинах, используется в расчете распределительного склада
+	Need float64
 }
 
 //SQLiteObject.Execute("CREATE TABLE IF NOT EXISTS stores (uid text PRIMARY KEY, name text NOT NULL, tip integer)");
@@ -664,14 +671,14 @@ func GetTable(tname string, page int, gate int, cond string) (int, string, []map
 		recs = "select count(*) from goods " + where + ";"
 	case "contracts":
 		//s = "select ROWID, provider,recipient,chedord,cheddeliv,delivdays from contracts" + where + limit + ";"
-		s = "select c.ROWID, c.provider as provider,c.recipient as recipient, c.providername as providername, s.name as recname,c.chedord as chedord,c.delivdays as delivdays from contracts as c left join stores as s on c.recipient=s.uid" + where + " ORDER BY c.providername, s.name " + limit + ";"
+		s = "select c.ROWID, c.provider as provider,c.recipient as recipient, c.providername as providername, s.name as recname,c.chedord as chedord,c.delivdays as delivdays, c.autoord from contracts as c left join stores as s on c.recipient=s.uid" + where + " ORDER BY c.providername, s.name " + limit + ";"
 		recs = "select count(c.ROWID) from contracts as c left join stores as s on c.recipient=s.uid" + where + ";"
 	case "contactgoods":
 		s = "select c.ROWID, c.uidprovider,c.uidgoods as uid,s.name as goodsname, s.art as art, c.providerArt as providerart from contractgoods as c left join goods as s on c.uidgoods=s.uid" + where + " order by s.art " + limit + ";"
 		recs = "select count(c.ROWID) from contractgoods as c left join goods as s on c.uidgoods=s.uid" + where + ";"
 	case "salesmatrix":
 		//s = "select s.uidStore,st.name as Склад,s.uidGoods as uidТовара,g.name as Номенклатура, g.Art as артикул,s.minbalance as МинОстаток,s.maxbalance as МаксОстаток,s.cost,s.vitrina,s.midperiod,s.demand,s.price,s.margin,s.inuse as ВПродаже,s.abc from salesmatrix as s left join stores as st on s.uidStore=st.uid left join goods as g on s.uidGoods=g.uid" + where + limit + ";"
-		s = "select s.ROWID,s.uidStore,st.name as storename,s.uidGoods as uidGoods,g.groupname as groupname, g.name as goodsname, g.Art as art,s.minbalance as minbalance,s.maxbalance as maxbalance,s.inuse as inuse,s.abc as abc, s.step as step, ifnull(s.demand,0.0)  from salesmatrix as s left join stores as st on s.uidStore=st.uid left join goods as g on s.uidGoods=g.uid" + where + " order by st.name, g.groupname, g.art" + limit + ";"
+		s = "select s.ROWID as ROWID,s.uidStore,st.name as storename,s.uidGoods as uidGoods,g.groupname as goodsgroup, g.name as goodsname, g.Art as art,s.minbalance as minbalance,s.maxbalance as maxbalance,s.inuse as inuse,s.abc as abc, s.step as step, ifnull(s.demand,0.0) as demand  from salesmatrix as s left join stores as st on s.uidStore=st.uid left join goods as g on s.uidGoods=g.uid" + where + " order by st.name, g.groupname, g.art" + limit + ";"
 		recs = "select count(s.ROWID) from salesmatrix as s left join stores as st on s.uidStore=st.uid left join goods as g on s.uidGoods=g.uid" + where + ";"
 	case "users":
 		s = "select id, name, pass, ifnull(email,''),ifnull(intro,''),usergroup from users" + where + " order by name " + limit + ";"
@@ -1126,12 +1133,12 @@ func GetContracts(r ...string) ([]Contract, error) {
 		rows, err = DB.Query(`SELECT c.provider, c.recipient, c.chedord, c.cheddeliv,c.delivdays from contracts c left join stores s on c.recipient=s.uid where c.autoord=1 and s.tip>-1 order by ifnull(s.tip,1) DESC, ifnull(s.name,"");`)
 	case 1:
 		if len(r[0]) > 0 {
-			rows, err = DB.Query("select provider,recipient,chedord,cheddeliv,delivdays from contracts where autoord=1 and recipient=$1;", r[0])
+			rows, err = DB.Query("select provider,recipient,chedord,cheddeliv,delivdays,providerName from contracts where autoord=1 and recipient=$1;", r[0])
 		} else {
-			rows, err = DB.Query(`SELECT c.provider, c.recipient, c.chedord, c.cheddeliv,c.delivdays from contracts c left join stores s on c.recipient=s.uid where c.autoord=1 and s.tip>-1 order by ifnull(s.tip,1) DESC, ifnull(s.name,"");`)
+			rows, err = DB.Query(`SELECT c.provider, c.recipient, c.chedord, c.cheddeliv,c.delivdays,c.providerName from contracts c left join stores s on c.recipient=s.uid where c.autoord=1 and s.tip>-1 order by ifnull(s.tip,1) DESC, ifnull(s.name,"");`)
 		}
 	case 2:
-		rows, err = DB.Query("select provider,recipient,chedord,cheddeliv,delivdays from contracts where autoord=1 and recipient=$1 and provider=$2;", r[0], r[1])
+		rows, err = DB.Query("select provider,recipient,chedord,cheddeliv,delivdays,providerName from contracts where autoord=1 and recipient=$1 and provider=$2;", r[0], r[1])
 	}
 	if err != nil {
 		return nil, err
@@ -1139,10 +1146,11 @@ func GetContracts(r ...string) ([]Contract, error) {
 	}
 	defer rows.Close()
 	for rows.Next() {
-		err := rows.Scan(&st.Provider, &st.Recipient, &st.Chedord, &st.Cheddeliv, &st.Delivdays)
+		err := rows.Scan(&st.Provider, &st.Recipient, &st.Chedord, &st.Cheddeliv, &st.Delivdays, &st.ProviderName)
 		if err != nil {
 			return ct[0:], err
 		}
+		st.Autoord = 1
 		ct = append(ct, st)
 	}
 	return ct[0:], nil
@@ -1194,6 +1202,26 @@ func GetGoods(q string) ([]Goods, error) {
 
 }
 
+//CreateUser заносит товары в таблицу.
+func CreateUser(g *User) (int64, error) {
+	/*CREATE TABLE "users" (
+		"id"	INTEGER,
+		"name"	TEXT UNIQUE,
+		"pass"	TEXT,
+		"usergroup"	TEXT,
+		"email"	TEXT,
+		"intro"	TEXT,
+		PRIMARY KEY("id" AUTOINCREMENT)
+	)*/
+	res, err := DB.Exec("INSERT OR REPLACE INTO users (name, pass, usergroup, email,intro) values($1,$2,$3,$4,$5) ;", g.Name, g.Pass, g.Group, g.Email, g.Intro)
+	if err != nil {
+		return 0, err
+		//log.Panic(err)
+	}
+	lastid, _ := res.LastInsertId()
+	return lastid, nil
+}
+
 //CreateGoods заносит товары в таблицу.
 func CreateGoods(g *Goods) (int64, error) {
 
@@ -1204,7 +1232,29 @@ func CreateGoods(g *Goods) (int64, error) {
 	}
 	lastid, _ := res.LastInsertId()
 	return lastid, nil
+}
 
+//CreateContract заносит контракт в таблицу.
+func CreateContract(g *Contract) (int64, error) {
+
+	res, err := DB.Exec("INSERT OR REPLACE INTO contracts (provider,recipient,chedord,cheddeliv,delivdays,autoord,providerName) values($1,$2,$3,$4,$5,$6,$7) ;", g.Provider, g.Recipient, g.Chedord, g.Cheddeliv, g.Delivdays, g.Autoord, g.ProviderName)
+	if err != nil {
+		return 0, err
+		//log.Panic(err)
+	}
+	lastid, _ := res.LastInsertId()
+	return lastid, nil
+}
+
+//DeleteContract удаляет контракт.
+func DeleteContract(rowid int) error {
+
+	_, err := DB.Exec("DELETE FROM contracts WHERE ROWID=$1 ;", rowid)
+	if err != nil {
+		return err
+		//log.Panic(err)
+	}
+	return nil
 }
 
 //GetSales возвращает движения из таблицы goodsmov
@@ -1967,7 +2017,7 @@ func GetReOrdering(provider string, uidstore string, period string) ([]string, e
 
 //GetLastNumZakaz вернет последний номер заказа из базы
 func GetLastNumZakaz(period string) int {
-	num, err := dbGetStrVal("Select NumDoc from oper where date(period)=date($1) order by NumDoc desc;", period)
+	num, err := dbGetStrVal("Select NumDoc from oper where date(period)=date($1) order by substr(NumDoc,2) desc;", period)
 	if err == nil {
 		v, err := strconv.Atoi(num[len(num)-2:])
 		if err != nil {
@@ -2424,10 +2474,11 @@ func GetCenterMatrix(uidGoods string, uidProvider string) (mg []MatrixGoods, err
 		*/
 		//если баланс помагазину больше минимального, то уменьшвем бадланс до минимального. Олеги тпк хотят,
 		//например в одной точке скопилось оч много товара, а в других его нет. Тогда у поставщика ничего не закажет
-		//поскольку по сети товара достаточно, но в других то магазинах нет ничего...
-		rows, err = DB.Query(`SELECT z.uidgoods, sum(CASE WHEN z.balance>z.minbalance THEN z.minbalance ELSE z.balance END) as balance, sum(z.minbalance) as minbalance, 9999999 as maxbalance, sum(z.vitrina) as vitrina, sum(z.demand) as demand from 
+		//поскольку по сети товара достаточно, но в других то магазинах нет ничего...  sum(CASE WHEN z.balance>z.minbalance THEN z.minbalance ELSE z.balance END) as balance,
+		rows, err = DB.Query(`SELECT z.uidgoods, sum(z.balance) as balance, sum(CASE WHEN z.balance<z.minbalance THEN z.minbalance-z.balance ELSE 0 END ) as need,
+		sum(z.minbalance) as minbalance, 9999999 as maxbalance, sum(z.vitrina) as vitrina, sum(z.demand) as demand from 
 		(SELECT sm.uidStore, sm.uidgoods, sm.minbalance as minbalance, sm.maxbalance as maxbalance, sm.vitrina as vitrina, IfNULL(l.balance,0) as balance, IfNULL(sm.demand,0) as demand from salesmatrix sm join (select g.uidStore, g.uidGoods,g.period, g.balance from goodsmov g where g.id in (
-			select max(m.id) from goodsmov m where m.uidgoods in (select uidgoods from contractgoods where uidprovider='` + Escape(uidProvider) + `') group by m.uidStore, m.uidGoods)) as l on sm.uidStore=l.uidStore and sm.uidgoods=l.uidgoods where sm.uidgoods in (select uidgoods from contractgoods where uidprovider='` + Escape(uidProvider) + `') and sm.inuse=1) as z GROUP BY z.uidgoods;`)
+			select max(m.id) from goodsmov m join stores st on st.uid=m.uidStore where st.tip>-1 and m.uidgoods in (select uidgoods from contractgoods where uidprovider='` + Escape(uidProvider) + `') group by m.uidStore, m.uidGoods)) as l on sm.uidStore=l.uidStore and sm.uidgoods=l.uidgoods where sm.uidgoods in (select uidgoods from contractgoods where uidprovider='` + Escape(uidProvider) + `') and sm.inuse=1) as z GROUP BY z.uidgoods;`)
 
 	} else {
 		//если у провайдера этого товара нет, то вернем пустую матрицу
@@ -2443,9 +2494,9 @@ func GetCenterMatrix(uidGoods string, uidProvider string) (mg []MatrixGoods, err
 				return mg, err
 			}
 		*/
-		rows, err = DB.Query(`SELECT z.uidgoods, sum(z.balance) as balance, sum(z.minbalance) as minbalance, 9999999 as maxbalance, sum(z.vitrina) as vitrina, sum(z.demand) as demand from
+		rows, err = DB.Query(`SELECT z.uidgoods, sum(z.balance) as balance, sum(CASE WHEN z.balance<z.minbalance THEN z.minbalance-z.balance ELSE 0 END ) as need, sum(z.minbalance) as minbalance, 9999999 as maxbalance, sum(z.vitrina) as vitrina, sum(z.demand) as demand from
 			(SELECT sm.uidStore, sm.uidgoods, sm.minbalance as minbalance, sm.maxbalance as maxbalance, sm.vitrina as vitrina, IfNULL(l.balance,0) as balance, IfNULL(sm.demand,0) as demand from salesmatrix sm join (select g.uidStore, g.uidGoods,g.period, g.balance from goodsmov g where g.uidGoods='` + Escape(uidGoods) + `' and g.id in (
-			select max(m.id) from goodsmov m where m.uidgoods in (select uidgoods from contractgoods where uidprovider='` + Escape(uidProvider) + `' and uidgoods='` + Escape(uidGoods) + `') group by m.uidStore, m.uidGoods)) as l on sm.uidStore=l.uidStore and sm.uidgoods=l.uidgoods where sm.uidgoods in (select uidgoods from contractgoods where uidprovider='` + Escape(uidProvider) + `' and uidgoods='` + Escape(uidGoods) + `') and sm.inuse=1) as z GROUP BY z.uidgoods;`)
+			select max(m.id) from goodsmov m join stores st on st.uid=m.uidStore where st.tip>-1 and m.uidgoods in (select uidgoods from contractgoods where uidprovider='` + Escape(uidProvider) + `' and uidgoods='` + Escape(uidGoods) + `') group by m.uidStore, m.uidGoods)) as l on sm.uidStore=l.uidStore and sm.uidgoods=l.uidgoods where sm.uidgoods in (select uidgoods from contractgoods where uidprovider='` + Escape(uidProvider) + `' and uidgoods='` + Escape(uidGoods) + `') and sm.inuse=1) as z GROUP BY z.uidgoods;`)
 	}
 
 	if err != nil {
@@ -2457,13 +2508,17 @@ func GetCenterMatrix(uidGoods string, uidProvider string) (mg []MatrixGoods, err
 
 	for rows.Next() {
 		lmg := MatrixGoods{}
-		err := rows.Scan(&lmg.KeyGoods, &lmg.Balance, &lmg.MinBalance, &lmg.MaxBalance, &lmg.Vitrina, &lmg.PredDemand)
+		var need sql.NullFloat64
+		err := rows.Scan(&lmg.KeyGoods, &lmg.Balance, &need, &lmg.MinBalance, &lmg.MaxBalance, &lmg.Vitrina, &lmg.PredDemand)
 		if err != nil {
 			return mg, err
 		}
 		lmg.PredPeriod = time.Now().Format("2006-01-02")
 		lmg.PredDays = 30
 		lmg.PredCnt = lmg.PredDemand * 30.0
+		if need.Valid {
+			lmg.Need = need.Float64
+		}
 		mg = append(mg, lmg)
 	}
 	return mg, nil

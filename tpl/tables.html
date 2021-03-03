@@ -156,6 +156,9 @@ $(function() {
         sorting: true,
         paging: true,
         autoload: true,
+		{{if .Inserting}}
+		inserting: true,
+		{{end}}
  
         pageSize: 25,
         pageButtonCount: 5,

@@ -14,7 +14,7 @@
 	  {{.Error}}
 	</div>
 {{end}}
-  <form action="/config" method="get">
+  <form action="/admin/config" method="get">
   <div class="form-group">
     <label for="firmName">Организация</label>
     <input type="text" class="form-control" id="firmName" name="firmName" placeholder="Организация" value="{{.firmName}}">
@@ -41,6 +41,20 @@
     <div class="form-group col-md-4">
       <label for="kfnunvisible">Начальная сигма сети</label>
       <input type="number" class="form-control" id="kfnunvisible" name="kfnunvisible" value="{{.kfnunvisible}}">
+    </div>
+  </div>
+  <div class="form-group">
+    <label for="urlodata">URL 1c odata</label>
+    <input type="text" class="form-control" id="urlodata" name="urlodata" placeholder="URL сервера odata 1c" value="{{.urlodata}}">
+  </div>
+  <div class="form-row">
+    <div class="form-group col-md-6">
+      <label for="userodata">Имя пользователя odata</label>
+      <input type="text" class="form-control" id="userodata" name="userodata" placeholder="rdodata" value="{{.userodata}}">
+    </div>
+    <div class="form-group col-md-6">
+      <label for="passodata">Пароль пользователя odata</label>
+      <input type="password" class="form-control" id="passodata" name="passodata" value="{{.passodata}}">
     </div>
   </div>
   <button type="submit" class="btn btn-primary">Сохранить</button>

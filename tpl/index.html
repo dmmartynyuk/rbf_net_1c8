@@ -61,6 +61,7 @@ POST запрос http://<адрес>:3000/api/recalcabc/:store обновит A
 {{define "jscript"}}
 <script type="text/javascript">
 $(document).ready(function(){
+/*
 	$("#uidstores").change(function(){
       var selected = $(this).children("option:selected").text();
 	  var val = $(this).children("option:selected").val();
@@ -70,6 +71,7 @@ $(document).ready(function(){
 		$("#makeop").data("href",href);
 	  }
     });
+*/
 	$("#makeop").on("click",function(){
 		var url=$("#makeop").data("href");
 		var val = $("#uidstores").children("option:selected").val();
@@ -78,6 +80,8 @@ $(document).ready(function(){
 		  if (r != true) {
 			return;
 		  } 
+		}else{
+			url=url+"&store="+val;
 		}
 		$.ajax({
 				type: "POST",

@@ -468,6 +468,7 @@ func apiMakeOrders(uidstorearg, uidgoodarg string) {
 				models.DbLog("makeOrders. Ошибка чтения  матрицы магазина "+store.Name+" "+err.Error(), "makeOrders", time.Now().UTC().UnixNano())
 				return
 			}
+			models.DbLog("makeOrders. расчет заказов магазина "+store.Name+" поставщик "+contract.ProviderName, "makeOrders", time.Now().UTC().UnixNano())
 
 			datedelivdays := now.AddDate(0, 0, delivdays).Format("2006-01-02")
 			if delivdays < MINDAYSORD {
@@ -555,7 +556,7 @@ func apiMakeOrders(uidstorearg, uidgoodarg string) {
 				if balance < 0 {
 					balance = 0
 				}
-				cntzak = cntzak - (balance - merch.Vitrina)
+				cntzak = cntzak - (balance - merch.Vitrina) + merch.Need
 				explain = explain + ",\"curbalance\":" + strconv.FormatFloat(merch.Balance, 'f', 2, 64) + ",\"delivdays\":" + strconv.FormatInt(int64(contract.Delivdays), 10) + ",\"delivsales\":" + strconv.FormatFloat(salecnt, 'f', 0, 64) + ",\"delivbalance\":" + strconv.FormatFloat(balance, 'f', 3, 64)
 				//если указан максимальный баланс, то добиваем до него
 
@@ -567,8 +568,8 @@ func apiMakeOrders(uidstorearg, uidgoodarg string) {
 				}
 				//if cntzak > 0.0 && cntzak+balance > merch.MaxBalance && merch.MaxBalance > 0 {
 				//но не более maxbalance
-				if cntzak > 0.0 && cntzak+merch.Balance > merch.MaxBalance && merch.MaxBalance > 0 {
-					cntzak = merch.MaxBalance - merch.Balance
+				if cntzak > 0.0 && cntzak+merch.Balance-merch.Need > merch.MaxBalance && merch.MaxBalance > 0 {
+					cntzak = merch.MaxBalance - merch.Balance + merch.Need
 					explain = explain + ",\"maxbalance\":" + strconv.FormatFloat(merch.MaxBalance, 'f', 2, 64) + ",\"zformaxbalance\":" + strconv.FormatFloat(cntzak, 'f', 2, 64)
 				}
 				//надо заказывать кратно step
