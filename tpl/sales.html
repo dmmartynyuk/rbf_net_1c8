@@ -104,6 +104,8 @@
 			</ul>
 		  <hr>
 		  <p class="mb-0">{{index .Matrix 6}}</p>
+		  <h4 >Данные последнего расчета</h4>
+		  <div class="explain"></div>
 		</div>
         </main>
      </div>  
@@ -190,6 +192,8 @@ function exportToCSV(typ) {
 }
 
 $(document).ready(function(){
+	let explain={{.Comment}};
+	alert(explain.days);
 	$("#uidgoods").autoComplete({
 		events: {
 			searchPost: function (resultFromServer) {

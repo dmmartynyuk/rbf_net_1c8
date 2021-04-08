@@ -23,7 +23,7 @@ import (
 )
 
 //Version версия программы
-const Version = "0.5.10"
+const Version = "0.6.3"
 
 //Mcalc флаг работы функции calculate
 type Mcalc struct {
@@ -135,6 +135,7 @@ func getPartnerOdata(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "data": v})
 }
 
+/*
 //calculate прогнозирунт продажи, lkc-коф для сети, отношение входных нейронов к скрытым, progper-количество дней прогноза
 func calculate(c *gin.Context) {
 	//читаем состояние сети
@@ -166,15 +167,6 @@ func calculate(c *gin.Context) {
 		return
 	}
 	if start == "ok" {
-		/*
-			slog := models.GetLastStateNetwork(1, "calculate")
-			for _, v := range slog {
-				if v[:3] != "end" {
-					//находимся в состоянии расчета. выводим это
-					c.JSON(http.StatusOK, gin.H{"status": http.StatusLocked, "start": time.Unix(0, Mc.Val()).Format("2 Jan 2006 15:04:05"), "message": "в процессе расчета " + strconv.FormatInt(Mc.Val(), 10) + " store=" + store + " goods=" + goods})
-					return
-				}
-			}*/
 		go calcnet(store, goods)
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "запущен расчет " + time.Now().Format("2 Jan 2006 15:04:05") + " store=" + store + " goods=" + goods})
 		return
@@ -194,6 +186,7 @@ func calculate(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "beg": status["beg"], "err": status["err"], "end": status["end"]})
 }
+*/
 
 func createGoods(c *gin.Context) {
 	g := models.Goods{
@@ -619,13 +612,13 @@ func updateContractGoods(c *gin.Context) {
 	}
 	w := make(map[string]string)
 	models.DbLog("beg. начало обновления товаров в базу "+time.Now().Format("2006-01-02T15:04:05"), "updateContractGoods", time.Now().UTC().UnixNano())
-	err := models.InsertTableData("contractgoods", matr, w)
+	ro, err := models.InsertTableData("contractgoods", matr, w)
 	if err != nil {
 		models.DbLog("err. ошибка обновления товаров в базу "+err.Error()+" "+time.Now().Format("2006-01-02T15:04:05"), "updateContractGoods", time.Now().UTC().UnixNano())
 		c.JSON(http.StatusBadRequest, gin.H{"status": "err", "error": true, "message": err.Error()})
 		return
 	}
-	models.DbLog("end. конец обновления товаров в базу "+time.Now().Format("2006-01-02T15:04:05"), "updateContractGoods", time.Now().UTC().UnixNano())
+	models.DbLog("end. обновлено "+strconv.FormatInt(int64(ro), 10)+" позиций. конец обновления товаров в базу "+time.Now().Format("2006-01-02T15:04:05"), "updateContractGoods", time.Now().UTC().UnixNano())
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "ok"})
 }
 
@@ -875,13 +868,13 @@ func updateGoods(c *gin.Context) {
 	}
 	w := make(map[string]string)
 	models.DbLog("beg. начало обновления товаров в базу "+time.Now().Format("2006-01-02T15:04:05"), "updateGoods", time.Now().UTC().UnixNano())
-	err := models.InsertTableData("goods", matr, w)
+	ro, err := models.InsertTableData("goods", matr, w)
 	if err != nil {
 		models.DbLog("err. ошибка обновления товаров в базу "+err.Error()+" "+time.Now().Format("2006-01-02T15:04:05"), "updateGoods", time.Now().UTC().UnixNano())
 		c.JSON(http.StatusBadRequest, gin.H{"status": "err", "error": true, "message": err.Error()})
 		return
 	}
-	models.DbLog("end. конец обновления товаров в базу "+time.Now().Format("2006-01-02T15:04:05"), "updateGoods", time.Now().UTC().UnixNano())
+	models.DbLog("end. обновлено "+strconv.FormatInt(int64(ro), 10)+" позиций. конец обновления товаров в базу "+time.Now().Format("2006-01-02T15:04:05"), "updateGoods", time.Now().UTC().UnixNano())
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "ok"})
 }
 
@@ -914,13 +907,13 @@ func updateAnalog(c *gin.Context) {
 	w := make(map[string]string)
 	models.DbLog("beg. начало обновления аналогов в базу "+time.Now().Format("2006-01-02T15:04:05"), "updateAnalog", time.Now().UTC().UnixNano())
 	models.DeleteTableData("goodsanalog", del)
-	err := models.InsertTableData("goodsanalog", matr, w)
+	ro, err := models.InsertTableData("goodsanalog", matr, w)
 	if err != nil {
 		models.DbLog("err. ошибка обновления аналогов в базу "+err.Error()+" "+time.Now().Format("2006-01-02T15:04:05"), "updateAnalog", time.Now().UTC().UnixNano())
 		c.JSON(http.StatusBadRequest, gin.H{"status": "err", "error": true, "message": err.Error()})
 		return
 	}
-	models.DbLog("end. конец обновления аналогов в базу "+time.Now().Format("2006-01-02T15:04:05"), "updateAnalog", time.Now().UTC().UnixNano())
+	models.DbLog("end. конец обновления аналогов в базу обновлено "+strconv.FormatInt(int64(ro), 10)+" позиций. "+time.Now().Format("2006-01-02T15:04:05"), "updateAnalog", time.Now().UTC().UnixNano())
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "ok"})
 }
 
@@ -1068,13 +1061,13 @@ func setSales(c *gin.Context) {
 	w["period"] = "="
 	w["tipmov"] = "="
 	models.DbLog("beg. начало записи движений в базу "+lastuidstore+" записей: "+strconv.FormatInt(int64(len(matr)), 10)+" "+time.Now().Format("2006-01-02T15:04:05"), "setSales", time.Now().UTC().UnixNano())
-	err = models.InsRepSales(matr, w)
+	ro, err := models.InsRepSales(matr, w)
 	if err != nil {
 		models.DbLog("err. ошибка записи движений в базу "+lastuidstore+" "+err.Error()+" "+time.Now().Format("2006-01-02T15:04:05"), "setSales", time.Now().UTC().UnixNano())
 		c.JSON(http.StatusBadRequest, gin.H{"status": "err", "error": true, "message": err.Error()})
 		return
 	}
-	models.DbLog("end. конец записи движений в базу "+lastuidstore+" "+time.Now().Format("2006-01-02T15:04:05"), "setSales", time.Now().UTC().UnixNano())
+	models.DbLog("end. конец записи движений в базу, обновлено "+strconv.FormatInt(int64(ro), 10)+" позиций. "+lastuidstore+" "+time.Now().Format("2006-01-02T15:04:05"), "setSales", time.Now().UTC().UnixNano())
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "ok"})
 
 }
@@ -1112,7 +1105,7 @@ func mkorders(c *gin.Context) {
 	}
 	if start == "ok" {
 		go apiMakeOrders(store, goods)
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "запущен расчет " + time.Now().Format("2 Jan 2006 15:04:05") + store + goods})
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "запущен расчет " + time.Now().Format("2 Jan 2006 15:04:05") + store + " " + goods})
 		return
 	}
 	slog := models.GetLastStateNetwork(50, "makeOrders")
@@ -1230,13 +1223,13 @@ func setsalesmatrix(c *gin.Context) {
 	//w["uidStore"] = "="
 	//w["uidGoods"] = "="
 	models.DbLog("beg. начало обновления матрицы товаров "+storeuid+" "+time.Now().Format("2006-01-02T15:04:05"), "setsalesmatrix", time.Now().UTC().UnixNano())
-	err := models.ReplaceMatrix(matr, w)
+	ro, err := models.ReplaceMatrix(matr, w)
 	if err != nil {
 		models.DbLog("err. ошибка обновления матрицы товаров "+storeuid+" "+err.Error()+" "+time.Now().Format("2006-01-02T15:04:05"), "setsalesmatrix", time.Now().UTC().UnixNano())
 		c.JSON(http.StatusBadRequest, gin.H{"status": "err", "error": true, "message": err.Error()})
 		return
 	}
-	models.DbLog("end. конец обновления матрицы товаров "+storeuid+" "+time.Now().Format("2006-01-02T15:04:05"), "setsalesmatrix", time.Now().UTC().UnixNano())
+	models.DbLog("end. конец обновления матрицы товаров, обновлено "+strconv.FormatInt(int64(ro), 10)+" позиций. "+storeuid+" "+time.Now().Format("2006-01-02T15:04:05"), "setsalesmatrix", time.Now().UTC().UnixNano())
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "ok"})
 }
 
@@ -1306,13 +1299,13 @@ func setstores(c *gin.Context) {
 	//но можно было бы сделать так
 	w := make(map[string]string)
 	models.DbLog("beg. начало обновления магазинов "+time.Now().Format("2006-01-02T15:04:05"), "setstores", time.Now().UTC().UnixNano())
-	err := models.InsertTableData("stores", matr, w)
+	ro, err := models.InsertTableData("stores", matr, w)
 	if err != nil {
 		models.DbLog("err. ошибка обновления магазинов "+err.Error()+" "+time.Now().Format("2006-01-02T15:04:05"), "setstores", time.Now().UTC().UnixNano())
 		c.JSON(http.StatusBadRequest, gin.H{"status": "err", "error": true, "message": err.Error()})
 		return
 	}
-	models.DbLog("end. конец обновления магазинов "+time.Now().Format("2006-01-02T15:04:05"), "setstores", time.Now().UTC().UnixNano())
+	models.DbLog("end. конец обновления магазинов, обновлено "+strconv.FormatInt(int64(ro), 10)+" позиций. "+time.Now().Format("2006-01-02T15:04:05"), "setstores", time.Now().UTC().UnixNano())
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "ok"})
 }
 
@@ -1391,7 +1384,8 @@ func startPage(c *gin.Context) {
 		s = s + time.Unix(0, int64(v)).Format("2 Jan 2006 15:04:05") + " " + lastdblog[v] + "<br />"
 	}
 	hdata["Neurostatus"] = template.HTML(s)
-	st, _ := models.GetMagNames(0, "")
+	store := new(models.Store)
+	st, _ := store.Select("tip>$1", models.NotUsed)
 	hdata["Stores"] = st
 	c.HTML(
 		// Зададим HTTP статус 200 (OK)
@@ -1760,11 +1754,12 @@ func predictPage(c *gin.Context) {
 	if len(uidstore) > 0 && len(uidgoods) > 0 {
 		var lastCenterbalance float64
 		cond := "s.uidStore='" + models.Escape(uidstore) + "' and s.uidGoods='" + models.Escape(uidgoods) + "'"
-		stores, err := models.GetMagNames(0, uidstore)
-		if len(stores) > 0 && stores[0].Tip == 0 { //распределительный склад
+		store := new(models.Store)
+		err := store.Get(uidstore)
+		if err == nil && store.Tip == models.Distribution { //распределительный склад
 			uidstore = "" //продажи и предикт суммируется
 			cond = " st.tip>0 and s.uidgoods='" + models.Escape(uidgoods) + "'"
-			_, lastCenterbalance, _ = models.GetLastBalance(stores[0].KeyStore, uidgoods)
+			_, lastCenterbalance, _ = models.GetLastBalance(store.KeyStore, uidgoods)
 		}
 		datasel, _ := models.GetSales(uidstore, uidgoods, per1, per2, "SMRb") //для перемещений только баланс
 		//добавим баланс распределительного склада, если смотрим для него статистику
@@ -1781,6 +1776,7 @@ func predictPage(c *gin.Context) {
 		switch {
 		case k < 1:
 			mx[6] = "Для склада в матрице товаров нет записи для " + goodstext
+			hdata["Comment"] = template.JS("{}")
 		case k == 1:
 			mx[0] = strconv.FormatFloat(matrix[1][7].(float64), 'f', 2, 64)  //minbalance
 			mx[1] = strconv.FormatFloat(matrix[1][8].(float64), 'f', 2, 64)  //maxbalance
@@ -1788,6 +1784,7 @@ func predictPage(c *gin.Context) {
 			mx[3] = strconv.FormatInt(matrix[1][9].(int64), 10)              //inuse
 			mx[4] = strings.ToUpper(matrix[1][10].(string))                  //abc
 			mx[5] = strconv.FormatFloat(matrix[1][12].(float64), 'f', 4, 64) //demand
+			hdata["Comment"] = template.JS("{" + matrix[1][13].(string) + "}")
 		case k > 1:
 			//uidStore="" сумма по всем складам
 			var m0, m1, m5 float64
@@ -1806,6 +1803,7 @@ func predictPage(c *gin.Context) {
 			mx[3] = strconv.FormatInt(matrix[1][9].(int64), 10) //inuse
 			mx[4] = strings.ToUpper(matrix[1][10].(string))     //abc
 			mx[5] = strconv.FormatFloat(m5, 'f', 4, 64)         //demand
+			hdata["Comment"] = template.JS("{}")
 		}
 		//если нет движений гуугл ругается.  следовательно заполним начальную точку
 		dataprof = dataprof + ",['" + per1date.Format("2006-01-02") + "',0,0]"
@@ -2259,11 +2257,10 @@ func usertab(c *gin.Context) {
 		return
 	case "POST":
 		//insert
-		last, err := models.CreateUser(&user)
+		err := user.Create()
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{"data": "[]", "status": "err", "message": err.Error()})
 		}
-		user.ROWID = last
 		c.JSON(http.StatusOK, user)
 		return
 	case "PUT":
@@ -2315,6 +2312,28 @@ func usertab(c *gin.Context) {
 
 }
 
+//setCalendar устанавливает календарь
+func setCalendar(c *gin.Context) {
+	from := c.DefaultQuery("from", "")
+	to := c.DefaultQuery("to", "")
+	uid := c.DefaultQuery("uid", "")
+	if to == "" {
+		to = time.Now().Format("2006-01-02")
+	}
+	if from == "" {
+		from = time.Now().AddDate(0, 0, -720).Format("2006-01-02")
+	}
+	if uid == "" {
+		uid = "7d"
+	}
+	err := models.SetCalendar(uid, from, to)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"status": "err", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "заполнен календарь " + uid + " с даты " + from + " по " + to})
+}
+
 /*
 //AuthMiddleware обработчик ошибок
 func AuthMiddleware(c *gin.Context) {
@@ -2335,6 +2354,7 @@ func AuthMiddleware(c *gin.Context) {
 	c.Next()
 }
 */
+
 func main() {
 	port := flag.Int("port", 3000, "Номер порта")
 	portstr := ":" + strconv.Itoa(*port)
@@ -2417,7 +2437,9 @@ func main() {
 	adm.DELETE("/usertab", usertab)
 	api := router.Group("/api/")
 	{
-		api.POST("calc/", calculate)
+		//api.POST("calc/", calculate)
+
+		api.POST("setcalendar/", setCalendar)
 
 		api.GET("stores/", fetchAllStocks)
 		api.PUT("stores/", updateStocks)

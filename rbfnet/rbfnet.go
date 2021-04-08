@@ -296,23 +296,23 @@ func (rbf *RBFNetwork) Train(input []float64, output []float64, epoches int) flo
 		}
 	}
 	//теперь оптимизируем ширину Spreads функций, для последних должно быть шире ибо влияние на прогноз больше
-
-	for n := rbf.Hiddens - 1; n > rbf.Hiddens-6 && n > 0; n-- {
-		sigma = rbf.GetISpread(n)
-		step = 1.0
-		for ep := 0; ep < epoches && math.Abs(step) > 0.0005; ep++ {
-			//изменяем сигма до минимализации ошибки
-			sigma = math.Abs(sigma + step)
-			rbf.SetISpread(n, sigma)
-			o := rbf.TrainRBF(input, output)
-			if o > oprev {
-				step = -0.7 * step
-				//log.Printf("o= %v prev= %v", o, oprev)
+	/*
+		for n := rbf.Hiddens - 1; n > rbf.Hiddens-6 && n > 0; n-- {
+			sigma = rbf.GetISpread(n)
+			step = 1.0
+			for ep := 0; ep < epoches && math.Abs(step) > 0.0005; ep++ {
+				//изменяем сигма до минимализации ошибки
+				sigma = math.Abs(sigma + step)
+				rbf.SetISpread(n, sigma)
+				o := rbf.TrainRBF(input, output)
+				if o > oprev {
+					step = -0.7 * step
+					//log.Printf("o= %v prev= %v", o, oprev)
+				}
+				oprev = o
 			}
-			oprev = o
 		}
-	}
-
+	*/
 	return oprev
 }
 

@@ -4,12 +4,28 @@ import (
 	"database/sql"
 	"encoding/xml"
 	"errors"
+	"math"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	//импортируем драйвер sqlite3
 	_ "github.com/mattn/go-sqlite3"
+)
+
+//константы статистики
+const (
+	SigmaDays  = "sigmadays"
+	SigmaCnt   = "sigmacnt"
+	Deals      = "deals"
+	MeanCnt    = "meancnt"
+	MedianCnt  = "mediancnt"
+	MaxCnt     = "maxcnt"
+	MeanDays   = "meandays"
+	MedianDays = "mediandays"
+	MaxDays    = "maxdays"
 )
 
 // DB указатель на базу данных
@@ -88,6 +104,24 @@ type OrderXML struct {
 	Items       ItemsXML
 }
 
+//WhType тип склада wholesale, retail and distribution warehouse
+type WhType int
+
+const (
+	//NotUsed not used
+	NotUsed WhType = -1 + iota
+	//Distribution распределительный склад
+	Distribution
+	//Retail оптовый склад
+	Retail
+	//SaleXL магазин торговый центр
+	SaleXL
+	//SaleM магазин medium
+	SaleM
+	//SaleS магазин у дома
+	SaleS
+)
+
 // Store Описание склада
 type Store struct {
 	//KeyStore uid склада
@@ -95,13 +129,106 @@ type Store struct {
 	//Name имя склада
 	Name string
 	//Tip тип склада, 0-распределительный, 1 оптовы1 2 розница большой, 3 - розница средний, 4 розница область...
-	Tip int
+	Tip WhType
 	//Calendar календаоь работы склада
 	Calendar string
 }
 
-//Stores магазины
-//type Stores []Store //type Stores map[string]string
+type storecache struct {
+	sync.RWMutex
+	store map[string]Store
+}
+
+var Scache storecache
+
+//Get получить магазин из базы по условию w
+func (s *Store) Get(key string) error {
+	var err error
+	var rows *sql.Rows
+	if Scache.store == nil {
+		Scache.Lock()
+		Scache.store = make(map[string]Store)
+		Scache.Unlock()
+	} else {
+		Scache.RLock()
+		st, ok := Scache.store[key]
+		Scache.RUnlock()
+		if ok {
+			s.KeyStore = key
+			s.Calendar = st.Calendar
+			s.Name = st.Name
+			s.Tip = st.Tip
+			return nil
+		}
+	}
+	rows, err = DB.Query("select uid, name, tip, calendar from stores where uid=$1 limit 1", key)
+	if err != nil {
+		return err
+		//log.Panic(err)
+	}
+	defer rows.Close()
+	var nuls sql.NullString
+	if rows.Next() {
+		err := rows.Scan(&s.KeyStore, &s.Name, &s.Tip, &nuls)
+		if err != nil {
+			return err
+		}
+		if nuls.Valid {
+			s.Calendar = nuls.String
+		}
+	}
+	Scache.Lock()
+	Scache.store[key] = *s
+	Scache.Unlock()
+	return nil
+}
+
+//Select возвращаем срез магазинов
+func (s *Store) Select(w string, args ...interface{}) (*[]Store, error) {
+	var err error
+	st := make([]Store, 0, 25)
+	var rows *sql.Rows
+	rows, err = DB.Query("select uid, name, tip, calendar from stores where "+w, args...)
+	if err != nil {
+		return &st, err
+		//log.Panic(err)
+	}
+	defer rows.Close()
+
+	var nuls sql.NullString
+	for rows.Next() {
+		err := rows.Scan(&s.KeyStore, &s.Name, &s.Tip, &nuls)
+		if err != nil {
+			return &st, err
+		}
+		if nuls.Valid {
+			s.Calendar = nuls.String
+		}
+		st = append(st, *s)
+	}
+	return &st, nil
+}
+
+//Set записывает склад магазин в базу
+func (s *Store) Set() error {
+	_, err := DB.Exec("insert or replace into stores (uid, name, tip, calendar) values($1,$2,$3,$4);", s.KeyStore, s.Name, s.Tip, s.Calendar)
+	if err != nil {
+		//log.Println(s)
+		return err
+
+	}
+	if Scache.store == nil {
+		Scache.Lock()
+		Scache.store = make(map[string]Store)
+		Scache.store[s.KeyStore] = *s
+		Scache.Unlock()
+	} else {
+		Scache.Lock()
+		Scache.store[s.KeyStore] = *s
+		Scache.Unlock()
+	}
+	return nil
+}
 
 // Contract Описание поставок
 type Contract struct {
@@ -131,6 +258,8 @@ type Goods struct {
 
 // MatrixGoods Описание товаров из матрицы
 type MatrixGoods struct {
+	//KeyStore uid store
+	KeyStore string
 	//KeyGoods uid товара
 	KeyGoods string
 	//MaxBalance страховой запас товара на складе
@@ -143,12 +272,18 @@ type MatrixGoods struct {
 	Abc string
 	//Balance текущий баланс по магазину
 	Balance float64
+	//Lastdeal дата последней продажи
+	Lastdeal string
 	//PredPeriod дата расчета прогноза
 	PredPeriod string
 	//PredDays predict days прогноз частоты покупок в днях, меньше-чаще predict days
-	PredDays int
+	PredDays float64
+	//Sigmadays sigma gauss
+	Sigmadays float64
 	//PredCnt прогноз количества покупок в течении PredDays
 	PredCnt float64
+	//Sigmacnt sigma gauss cnt
+	Sigmacnt float64
 	//PredDemand прогноз потребности ед/день
 	PredDemand float64
 	//Step кратность упаковки товара
@@ -200,6 +335,48 @@ type Sales struct {
 	Balance    []float64
 	Prevdays   []float64
 	Zdays      []float64
+}
+
+//SaleData данные по продажам для сети. на вход подаем данные год, номердекады, тип дня (вых/раб), количество продаж
+type SaleData struct {
+	//Per период сделки yyyy-mm-dd
+	Per string
+	//Balance баланс после сделки
+	Balance float64
+	//Empt дней отсутствия товара.
+	Empt int
+	//Wdays рабочих дней в периоде/от предидущей продажи
+	Wdays int
+	//Cnt колич проданного товара
+	Cnt float64
+	//Sm выручка от проданного товара
+	Sm float64
+	//Profit прибыль от проданного товара
+	Profit float64
+}
+
+// FNSales Продажи для расчета
+//на вход сети подаем данные год, номерпериода, тип дня (вых/раб), количество продаж
+type FNSales struct {
+	KeyStore string
+	KeyGoods string
+	Grp      [3]rune
+	//LastBalance последний остаток по складу на последнюю дату движения
+	LastBalance float64
+	//Firstdeal дата первой сделки Unix()/86400
+	Firstdeal int64
+	//Lastdeal дата последней сделки Unix()/86400
+	Lastdeal int64
+	//LastSum последняя цена
+	LastSum float64
+	//LastMargin последняя маржа
+	LastMargin float64
+	//Stat статистика продаж
+	Stat map[string]float64
+	//Sdata данные по продажам
+	Sdata []SaleData
+	//Itdata накопительные данные по продажам за год-месяц
+	Itdata []SaleData
 }
 
 //Neuro содержит данные строки из базы
@@ -263,30 +440,47 @@ func GetUsers(group string) ([]User, error) {
 	return users, nil
 }
 
-//SetUser добавляет пользователя в базу
-func SetUser(name, pass, group, email, intro string) error {
-	if name == "" || pass == "" {
+//Save добавляет пользователя в базу
+func (u *User) Save() error {
+	if u.Name == "" || u.Pass == "" {
 		return errors.New("Необходимо ввести имя пользователя и пароль")
 	}
-	if group == "" {
-		group = "manager"
+	if u.Group == "" {
+		u.Group = "manager"
 	}
-	uname, err := dbGetStrVal("Select name from users where name=$1 limit 1;", name)
+	uname, err := dbGetStrVal("Select name from users where name=$1 limit 1;", u.Name)
 	if err != nil && err != sql.ErrNoRows {
 		return err
 	}
 	if uname != "" {
-		if len(email) > 0 && len(intro) > 0 {
-			_, err = DB.Exec("update users set pass=$1, email=$2, usergroup=$3, intro=$4 where name=$5", pass, email, group, intro, name)
-		} else if len(email) > 0 {
-			_, err = DB.Exec("update users set pass=$1, email=$2, usergroup=$3 where name=$4", pass, email, group, name)
-		} else if len(intro) > 0 {
-			_, err = DB.Exec("update users set pass=$1, usergroup=$2, intro=$3 where name=$4", pass, group, intro, name)
-		}
+
+		_, err = DB.Exec("update users set pass=$1, usergroup=$2, intro=$3, email=$4 where name=$5", u.Pass, u.Group, u.Intro, u.Email, u.Name)
+
 		return err
 	}
-	_, err = DB.Exec("insert into users (name,pass,usergroup,email,intro) values($1,$2,$3,$4);", name, pass, group, email, intro)
+	_, err = DB.Exec("insert into users (name,pass,usergroup,email,intro) values($1,$2,$3,$4,$5);", u.Name, u.Pass, u.Group, u.Email, u.Intro)
 	return err
+}
+
+//Create пишет пользователя в таблицу.
+func (u *User) Create() error {
+	/*CREATE TABLE "users" (
+		"id"	INTEGER,
+		"name"	TEXT UNIQUE,
+		"pass"	TEXT,
+		"usergroup"	TEXT,
+		"email"	TEXT,
+		"intro"	TEXT,
+		PRIMARY KEY("id" AUTOINCREMENT)
+	)*/
+	res, err := DB.Exec("INSERT OR REPLACE INTO users (name, pass, usergroup, email,intro) values($1,$2,$3,$4,$5) ;", u.Name, u.Pass, u.Group, u.Email, u.Intro)
+	if err != nil {
+		return err
+		//log.Panic(err)
+	}
+	lastid, _ := res.LastInsertId()
+	u.ROWID = lastid
+	return nil
 }
 
 //Escape экранирует символы для sql
@@ -678,7 +872,7 @@ func GetTable(tname string, page int, gate int, cond string) (int, string, []map
 		recs = "select count(c.ROWID) from contractgoods as c left join goods as s on c.uidgoods=s.uid" + where + ";"
 	case "salesmatrix":
 		//s = "select s.uidStore,st.name as Склад,s.uidGoods as uidТовара,g.name as Номенклатура, g.Art as артикул,s.minbalance as МинОстаток,s.maxbalance as МаксОстаток,s.cost,s.vitrina,s.midperiod,s.demand,s.price,s.margin,s.inuse as ВПродаже,s.abc from salesmatrix as s left join stores as st on s.uidStore=st.uid left join goods as g on s.uidGoods=g.uid" + where + limit + ";"
-		s = "select s.ROWID as ROWID,s.uidStore,st.name as storename,s.uidGoods as uidGoods,g.groupname as goodsgroup, g.name as goodsname, g.Art as art,s.minbalance as minbalance,s.maxbalance as maxbalance,s.inuse as inuse,s.abc as abc, s.step as step, ifnull(s.demand,0.0) as demand  from salesmatrix as s left join stores as st on s.uidStore=st.uid left join goods as g on s.uidGoods=g.uid" + where + " order by st.name, g.groupname, g.art" + limit + ";"
+		s = "select s.ROWID as ROWID,s.uidStore,st.name as storename,s.uidGoods as uidGoods,g.groupname as goodsgroup, g.name as goodsname, g.Art as art,s.minbalance as minbalance,s.maxbalance as maxbalance,s.inuse as inuse,s.abc as abc, s.step as step, ifnull(s.demand,0.0) as demand, ifnull(s.comment,'') as comment from salesmatrix as s left join stores as st on s.uidStore=st.uid left join goods as g on s.uidGoods=g.uid" + where + " order by st.name, g.groupname, g.art" + limit + ";"
 		recs = "select count(s.ROWID) from salesmatrix as s left join stores as st on s.uidStore=st.uid left join goods as g on s.uidGoods=g.uid" + where + ";"
 	case "users":
 		s = "select id, name, pass, ifnull(email,''),ifnull(intro,''),usergroup from users" + where + " order by name " + limit + ";"
@@ -760,7 +954,8 @@ func GetTable(tname string, page int, gate int, cond string) (int, string, []map
 }
 
 //InsertTableData изменяет таблицу tabname
-func InsertTableData(tabname string, matr []map[string]interface{}, keydel map[string]string) error {
+func InsertTableData(tabname string, matr []map[string]interface{}, keydel map[string]string) (int, error) {
+	var ret int64
 	itrans := 500
 	s := ""
 	i := 0
@@ -812,21 +1007,23 @@ func InsertTableData(tabname string, matr []map[string]interface{}, keydel map[s
 			_, err := DB.Exec(s)
 			if err != nil {
 				DB.Exec("ROLLBACK TRANSACTION;")
-				return err
+				return 0, err
 			}
 			s = ""
 		}
 	}
+
 	if s != "" {
 		s = "BEGIN TRANSACTION;" + s + "COMMIT TRANSACTION;"
-		_, err := DB.Exec(s)
+		r, err := DB.Exec(s)
 		if err != nil {
 			DB.Exec("ROLLBACK TRANSACTION;")
 			//log.Println(s)
-			return err
+			return 0, err
 		}
+		ret, _ = r.RowsAffected()
 	}
-	return nil
+	return int(ret), nil
 }
 
 //UpdateTableData изменяет таблицу tabname согласно условию w
@@ -1085,42 +1282,6 @@ func (c Config) ValString(key string, def string) string {
 	return ret
 }
 
-// GetMagNames возвращает срез из таблицы магазинов. tip-тип склада. В выборку попадают склады равно или выше значения tip
-func GetMagNames(tip int, uidStore string) ([]Store, error) {
-	st := make([]Store, 0, 25)
-	var err error
-	var rows *sql.Rows
-	if len(uidStore) > 0 {
-		rows, err = DB.Query("select uid, name, tip, calendar from stores where uid=$1;", uidStore)
-	} else {
-		if tip <= -50 {
-			tip = tip + 100
-			rows, err = DB.Query("select uid, name, tip, calendar from stores where tip=$1 order by name;", tip)
-		} else {
-			rows, err = DB.Query("select uid, name, tip, calendar from stores where tip>=$1 order by name;", tip)
-		}
-	}
-	if err != nil {
-		return st, err
-		//log.Panic(err)
-	}
-	defer rows.Close()
-	var s Store
-	var nuls sql.NullString
-	for rows.Next() {
-		err := rows.Scan(&s.KeyStore, &s.Name, &s.Tip, &nuls)
-		if err != nil {
-			return st, err
-		}
-		if nuls.Valid {
-			s.Calendar = nuls.String
-		}
-		st = append(st, s)
-	}
-	return st, nil
-
-}
-
 // GetContracts возвращает таблицу контрактов с поставщиками.
 func GetContracts(r ...string) ([]Contract, error) {
 	st := Contract{}
@@ -1200,26 +1361,6 @@ func GetGoods(q string) ([]Goods, error) {
 	}
 	return gds, nil
 
-}
-
-//CreateUser заносит товары в таблицу.
-func CreateUser(g *User) (int64, error) {
-	/*CREATE TABLE "users" (
-		"id"	INTEGER,
-		"name"	TEXT UNIQUE,
-		"pass"	TEXT,
-		"usergroup"	TEXT,
-		"email"	TEXT,
-		"intro"	TEXT,
-		PRIMARY KEY("id" AUTOINCREMENT)
-	)*/
-	res, err := DB.Exec("INSERT OR REPLACE INTO users (name, pass, usergroup, email,intro) values($1,$2,$3,$4,$5) ;", g.Name, g.Pass, g.Group, g.Email, g.Intro)
-	if err != nil {
-		return 0, err
-		//log.Panic(err)
-	}
-	lastid, _ := res.LastInsertId()
-	return lastid, nil
 }
 
 //CreateGoods заносит товары в таблицу.
@@ -1499,7 +1640,7 @@ func SaveSales(uidStore string, uidGoods string, period string, tipmov string, c
 }
 
 //InsRepSales изменяет таблицу продажи товаров
-func InsRepSales(matr []map[string]interface{}, keyfordel map[string]string) error {
+func InsRepSales(matr []map[string]interface{}, keyfordel map[string]string) (int, error) {
 	return InsertTableData("goodsmov", matr, keyfordel)
 }
 
@@ -1528,53 +1669,40 @@ func GetAllGoodsFromMatrix(kStore string, kGoods string) (mg []MatrixGoods, err 
 	//rows, err := DB.Query("select uidGoods, minbalance, maxbalance, abc, vitrina from salesmatrix where uidStore=$1;", kStore) // uidGoods='ea716efd-52f8-11e5-ad24-3085a9a9595a' and
 	var rows *sql.Rows
 	if len(kGoods) == 0 {
-		/*
-				rows, err = DB.Query(`select s.uidGoods, s.minbalance, s.maxbalance, ifnull(s.abc,'C') as abc, s.vitrina, ifnull(zz.balance,0.0) as balance, ifnull(p.period,'1970-01-01') as predictper , ifnull(p.cnt,0.0) as predcnt, ifnull(p.days,0) as preddays, ifnull(p.demand,0.0) as preddemand, s.step from salesmatrix s LEFT JOIN
-			(select z.uidgoods as uidgoods, z.balance as balance, z.period from goodsmov as z join (select max(g.id) as id from goodsmov as g where g.uidStore=$1 group by g.uidStore, g.uidgoods) as a on a.id=z.id) as zz
-			on s.uidGoods=zz.uidgoods left join
-			(select p.uidStore, p.uidgoods, p.period, p.cnt, p.days, p.demand from predict as p join
-			(select max(period) as mperiod, max(id) as id,uidStore, uidgoods from predict where uidStore=$1 group by uidStore, uidgoods) as p1
-			on p.id=p1.id where p.uidStore=$1) as p on s.uidStore=p.uidStore and s.uidgoods=p.uidgoods where s.uidStore=$1 and s.inuse=1;`, kStore)
-		*/
-		rows, err = DB.Query(`select s.uidGoods, s.minbalance, s.maxbalance, ifnull(s.abc,'C') as abc, s.vitrina, ifnull(zz.balance,0.0) as balance, ifnull(p.period,'1970-01-01') as predictper , ifnull(p.cnt,0.0) as predcnt, ifnull(p.days,0) as preddays, ifnull(p.demand,0.0) as preddemand, s.step from salesmatrix s LEFT JOIN 
-	(select z.uidgoods as uidgoods, z.balance as balance, z.period from goodsmov as z where z.uidStore='` + Escape(kStore) + `' and z.id in (select max(g.id) as id from goodsmov as g where g.uidStore='` + Escape(kStore) + `' group by g.uidStore, g.uidgoods) ) as zz
-	on s.uidGoods=zz.uidgoods left join 
-	(select p1.uidStore, p1.uidgoods, p1.period, p1.cnt, p1.days, p1.demand from predict as p1 where p1.uidStore='` + Escape(kStore) + `' and p1.id in
-	(select max(id) as id from predict where uidStore='` + Escape(kStore) + `' group by uidStore, uidgoods) ) as p on s.uidStore=p.uidStore and s.uidgoods=p.uidgoods where s.uidStore='` + Escape(kStore) + `' and s.inuse=1;`)
+		rows, err = DB.Query(`select s.uidGoods, s.minbalance, s.maxbalance, ifnull(s.abc,'C') as abc, s.vitrina, ifnull(zz.balance,0.0) as balance, ifnull(strftime('%Y-%m-%d',zz.period),'1970-01-01') as lastdeal,
+		ifnull(s.predictper,'1970-01-01') as predictper , ifnull(s.midcnt,0.0) as midcnt, ifnull(s.midperiod,0.0) as preddays, ifnull(s.demand,0.0) as preddemand, 
+		ifnull(s.sigmaday,0.0) as sigmaday,ifnull(s.sigmacnt,0.0) as sigmacnt, s.step from salesmatrix s LEFT JOIN 
+			(select z.uidgoods as uidgoods, z.balance as balance, z.period from goodsmov as z where z.id in (select max(g.id) as id from goodsmov as g where g.uidStore='` + Escape(kStore) + `' group by g.uidStore, g.uidgoods) ) as zz
+			on s.uidGoods=zz.uidgoods 
+			where s.uidStore='` + Escape(kStore) + `' and s.inuse=1;`)
 	} else {
-		/*
-				rows, err = DB.Query(`select s.uidGoods, s.minbalance, s.maxbalance, ifnull(s.abc,'C') as abc, s.vitrina, ifnull(zz.balance,0.0) as balance, ifnull(p.period,'1970-01-01') as predictper , ifnull(p.cnt,0.0) as predcnt, ifnull(p.days,0) as preddays, ifnull(p.demand,0.0) as preddemand, s.step from salesmatrix s LEFT JOIN
-			(select z.uidgoods as uidgoods, z.balance as balance, z.period from goodsmov as z join (select max(g.id) as id from goodsmov as g where g.uidStore=$1 and g.uidgoods=$2 group by g.uidStore, g.uidgoods) as a on a.id=z.id) as zz
-			on s.uidGoods=zz.uidgoods left join
-			(select p.uidStore, p.uidgoods, p.period, p.cnt, p.days, p.demand from predict as p join
-			(select max(period) as mperiod, max(id) as id,uidStore, uidgoods from predict where uidStore=$1 and uidgoods=$2 group by uidStore, uidgoods) as p1
-			on p.id=p1.id where p.uidStore=$1 and p.uidgoods=$2) as p on s.uidStore=p.uidStore and s.uidgoods=p.uidgoods where s.uidStore=$1 and s.uidgoods=$2 and s.inuse=1;`, kStore, kGoods)
-		*/
-		rows, err = DB.Query(`select s.uidGoods, s.minbalance, s.maxbalance, ifnull(s.abc,'C') as abc, s.vitrina, ifnull(zz.balance,0.0) as balance, ifnull(p1.period,'1970-01-01') as predictper , ifnull(p1.cnt,0.0) as predcnt, ifnull(p1.days,0) as preddays, ifnull(p1.demand,0.0) as preddemand, s.step from salesmatrix s LEFT JOIN 
-		(select z.uidgoods as uidgoods, z.balance as balance, z.period from goodsmov as z where z.id in (select max(g.id) as id from goodsmov as g where g.uidStore='` + Escape(kStore) + `' and g.uidgoods='` + Escape(kGoods) + `' group by g.uidStore, g.uidgoods) ) as zz
-		on s.uidGoods=zz.uidgoods left join 
-		(select p.uidStore, p.uidgoods, p.period, p.cnt, p.days, p.demand from predict as p where p.uidStore='` + Escape(kStore) + `' and p.uidgoods='` + Escape(kGoods) + `' and p.id in
-		(select max(id) as id from predict where uidStore='` + Escape(kStore) + `' and uidgoods='` + Escape(kGoods) + `' group by uidStore, uidgoods)  ) as p1 on s.uidStore=p1.uidStore and s.uidgoods=p1.uidgoods 
-		where s.uidStore='` + Escape(kStore) + `' and s.uidgoods='` + Escape(kGoods) + `' and s.inuse=1;`)
+		rows, err = DB.Query(`select s.uidGoods, s.minbalance, s.maxbalance, ifnull(s.abc,'C') as abc, s.vitrina, ifnull(zz.balance,0.0) as balance, ifnull(strftime('%Y-%m-%d',zz.period),'1970-01-01') as lastdeal,
+		ifnull(s.predictper,'1970-01-01') as predictper , ifnull(s.midcnt,0.0) as midcnt, ifnull(s.midperiod,0.0) as preddays, ifnull(s.demand,0.0) as preddemand,
+		ifnull(s.sigmaday,0.0) as sigmaday,ifnull(s.sigmacnt,0.0) as sigmacnt, s.step from salesmatrix s LEFT JOIN 
+			(select z.uidgoods as uidgoods, z.balance as balance, z.period from goodsmov as z where z.id in (select max(g.id) as id from goodsmov as g where g.uidStore='` + Escape(kStore) + `' and g.uidgoods='` + Escape(kGoods) + `' group by g.uidStore, g.uidgoods) ) as zz
+			on s.uidGoods=zz.uidgoods 
+			where s.uidStore='` + Escape(kStore) + `' and s.uidgoods='` + Escape(kGoods) + `' and s.inuse=1;`)
 	}
-	lmg := MatrixGoods{}
-	mg = make([]MatrixGoods, 0, 250)
+	mg = make([]MatrixGoods, 0, 750)
 	if err != nil {
 		return mg, err
 		//log.Panic(err)
 	}
 	defer rows.Close()
-	var nf sql.NullFloat64
+	var balance sql.NullFloat64
+	var sigmaday sql.NullFloat64
+	var sigmacnt sql.NullFloat64
 	var nfd sql.NullFloat64
-	var ns sql.NullString
-	var nsp sql.NullString
+	var abc sql.NullString
+	var predictper sql.NullString
 	for rows.Next() {
-		err := rows.Scan(&lmg.KeyGoods, &lmg.MinBalance, &lmg.MaxBalance, &ns, &lmg.Vitrina, &nf, &nsp, &lmg.PredCnt, &lmg.PredDays, &nfd, &lmg.Step)
+		lmg := MatrixGoods{}
+		err := rows.Scan(&lmg.KeyGoods, &lmg.MinBalance, &lmg.MaxBalance, &abc, &lmg.Vitrina, &balance, &lmg.Lastdeal, &predictper, &lmg.PredCnt, &lmg.PredDays, &nfd, &sigmaday, &sigmacnt, &lmg.Step)
 		if err != nil {
 			return mg, err
 		}
-		if nf.Valid {
-			lmg.Balance = nf.Float64
+		if balance.Valid {
+			lmg.Balance = balance.Float64
 		} else {
 			lmg.Balance = 0.0
 		}
@@ -1583,15 +1711,25 @@ func GetAllGoodsFromMatrix(kStore string, kGoods string) (mg []MatrixGoods, err 
 		} else {
 			lmg.PredDemand = 0.0
 		}
-		if ns.Valid {
-			lmg.Abc = ns.String
+		if abc.Valid {
+			lmg.Abc = abc.String
 		} else {
 			lmg.Abc = "C"
 		}
-		if nsp.Valid {
-			lmg.PredPeriod = nsp.String
+		if predictper.Valid {
+			lmg.PredPeriod = predictper.String
 		} else {
 			lmg.PredPeriod = "1970-01-01"
+		}
+		if sigmaday.Valid {
+			lmg.Sigmadays = sigmaday.Float64
+		} else {
+			lmg.Sigmadays = 0
+		}
+		if sigmacnt.Valid {
+			lmg.Sigmacnt = sigmacnt.Float64
+		} else {
+			lmg.Sigmacnt = 0.0
 		}
 		mg = append(mg, lmg)
 	}
@@ -1642,14 +1780,15 @@ func UpdateMatrix(m map[string]interface{}, w map[string]string) error {
 }
 
 //ReplaceMatrix изменяет таблицу матрицы товаров
-func ReplaceMatrix(matr []map[string]interface{}, w map[string]string) error {
+func ReplaceMatrix(matr []map[string]interface{}, w map[string]string) (int, error) {
 	//пометим все как не в ассортименте
 	//как правило порции идут по складам, поэтому во всем срезе склад как у нулевого
 	uidstore := matr[0]["uidStore"].(string)
+	//запретим все
 	s := "UPDATE salesmatrix set inuse=0 where uidStore='" + Escape(uidstore) + "';"
 	_, err := DB.Exec(s)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	return InsertTableData("salesmatrix", matr, w)
 	/*
@@ -1818,13 +1957,19 @@ func LoadRbfNet(uidstore string, uidgoods string) (rbf *Neuro, err error) {
 }
 
 //SavePredict сохраняет данные предсказаний количества покупок pred за days дней для магазина uidstore, товара uidgoods
-func SavePredict(uidstore string, uidgoods string, pred float64, period float64, days int, demand float64) error {
+func (m *MatrixGoods) SavePredict(store string, price, margin float64) error {
 	//CREATE UNIQUE INDEX storegoodsperiod ON predict (uidStore,uidGoods,period)
-	_, err := DB.Exec("INSERT OR REPLACE INTO predict (uidStore, uidGoods, period, cnt, days, demand) VALUES($1,$2,$3,$4,$5,$6);", uidstore, uidgoods, time.Unix(int64(period*86400), 0).Format("2006-01-02"), int(pred+0.5), days, demand)
+	//_, err := DB.Exec("INSERT OR REPLACE INTO predict (uidStore, uidGoods, period, cnt, days, demand) VALUES($1,$2,$3,$4,$5,$6);", uidstore, uidgoods, time.Unix(int64(period*86400), 0).Format("2006-01-02"), int(pred+0.5), days, demand)
+	d := 0.0
+	if m.PredDays != 0 {
+		d = float64(int64((m.PredCnt/m.PredDays)*10000)) / 10000
+	}
+	_, err := DB.Exec("UPDATE salesmatrix set predictper=$1, midperiod=$2, sigmaday=$3, midcnt=$4, sigmacnt=$5, demand=$6, price=$7, margin=$8 where uidstore=$9 and uidgoods=$10;", time.Now().Format("2006-01-02"), float64(int64(m.PredDays*10000))/10000, float64(int(m.Sigmadays*1000))/1000, float64(int(m.PredCnt*1000))/1000, float64(int(m.Sigmacnt*1000))/1000, d, math.Round(price), margin, store, m.KeyGoods)
 	if err != nil {
 		return err
 		//log.Panic(err)
 	}
+	//rd.RowsAffected()
 	return nil
 }
 
@@ -1954,7 +2099,7 @@ func GetLastStateNetwork(num int, strmodul string) map[int]string {
 }
 
 //SaveOper сохраняет данные заказов в базу
-func SaveOper(numdoc string, provider string, uidstore string, uidgoods string, period string, cnt float64, nextper string, delivery string, comment string) error {
+func SaveOper(numdoc string, provider string, uidstore string, uidgoods string, period string, cnt float64, delivery string, comment string) error {
 	//если заказ уже сделан то пропускаем и не пишем
 	//needwrite := true
 	cents, err := dbGetFVal("Select ifnull(sum(ordered),0) from oper where provider=$1 and uidStore=$2 and uidGoods=$3 and delivery>$4", provider, uidstore, uidgoods, period)
@@ -1968,7 +2113,7 @@ func SaveOper(numdoc string, provider string, uidstore string, uidgoods string, 
 		} else {
 			comment = comment + ",\"zitog\":" + strconv.FormatFloat(cnt, 'f', 2, 64)
 		}
-		_, err := DB.Exec("INSERT OR REPLACE INTO oper (uidStore, uidGoods, provider, period, cnt, nextper,NumDoc,delivery, comment) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9);", uidstore, uidgoods, provider, period, cnt, nextper, numdoc, delivery, comment)
+		_, err := DB.Exec("INSERT OR REPLACE INTO oper (uidStore, uidGoods, provider, period, cnt, NumDoc,delivery, comment) VALUES($1,$2,$3,$4,$5,$6,$7,$8);", uidstore, uidgoods, provider, period, cnt, numdoc, delivery, comment)
 		if err != nil {
 			return err
 			//log.Panic(err)
@@ -2017,9 +2162,26 @@ func GetReOrdering(provider string, uidstore string, period string) ([]string, e
 
 //GetLastNumZakaz вернет последний номер заказа из базы
 func GetLastNumZakaz(period string) int {
-	num, err := dbGetStrVal("Select NumDoc from oper where date(period)=date($1) order by substr(NumDoc,2) desc;", period)
+	num, err := dbGetStrVal("Select NumDoc from oper where date(period)=date($1) order by NumDoc desc;", period)
 	if err == nil {
-		v, err := strconv.Atoi(num[len(num)-2:])
+		//n колич знаков в номере, меняющиеся в течении дня
+		n := 2
+		t, err := time.Parse("2006-01-02", period)
+		if err != nil {
+			t, err = time.Parse("2006-01-02T15:04:05", period)
+			if err != nil {
+				t = time.Now()
+			}
+		}
+		nd := t.YearDay()
+		if nd < 10 {
+			n = len(num) - 3
+		} else if nd < 100 {
+			n = len(num) - 4
+		} else {
+			n = len(num) - 5
+		}
+		v, err := strconv.Atoi(num[len(num)-n:])
 		if err != nil {
 			return 0
 		}
@@ -2087,8 +2249,8 @@ func GetZakaz(num string, page int, gate int, sortfield string, sortorder string
 	}
 	//все заказы без строк
 	if num == "" {
-		recs, _ = dbGetIntVal("Select count(distinct NumDoc) FROM oper " + where + ";")
-		rows, err = DB.Query("Select distinct o.uidStore as uidStore, '' as uidGoods, o.provider as uidprovider, o.period as period, 0 as cnt, '' as nextper, o.NumDoc, ifnull(s.name,'') as sname, '' as gname, '' as art, pr.name as provname, '' as comment FROM oper o left join stores s on o.uidStore=s.uid left join providers as pr on o.provider=pr.uid " + where + orderby + limit + ";")
+		recs, _ = dbGetIntVal("Select count(distinct o.NumDoc) FROM oper o " + where + ";")
+		rows, err = DB.Query("Select distinct o.uidStore as uidStore, '' as uidGoods, o.provider as uidprovider, o.period as period, 0 as cnt, '' as delivery, o.NumDoc, ifnull(s.name,'') as sname, '' as gname, '' as art, pr.name as provname, '' as comment FROM oper o left join stores s on o.uidStore=s.uid left join providers as pr on o.provider=pr.uid " + where + orderby + limit + ";")
 	} else {
 		//выводим данные по конкретному заказу
 		recs, _ = dbGetIntVal("Select count(*) FROM oper WHERE NumDoc=$1;", num)
@@ -2099,7 +2261,7 @@ func GetZakaz(num string, page int, gate int, sortfield string, sortorder string
 		//log.Panic(err)
 	}
 	defer rows.Close()
-	var store, provider, pr, nextper, numdoc, prevnum, prevprov, prevstore, sname string
+	var store, provider, pr, delivper, numdoc, prevnum, prevprov, prevstore, sname string
 	var cnt sql.NullFloat64
 	var art sql.NullString
 	var gname sql.NullString
@@ -2109,7 +2271,7 @@ func GetZakaz(num string, page int, gate int, sortfield string, sortorder string
 	i := ZakazGoods{}
 	for rows.Next() {
 		i = ZakazGoods{}
-		err := rows.Scan(&store, &i.UID, &provider, &pr, &cnt, &nextper, &numdoc, &sname, &gname, &art, &pname, &comment)
+		err := rows.Scan(&store, &i.UID, &provider, &pr, &cnt, &delivper, &numdoc, &sname, &gname, &art, &pname, &comment)
 		if err != nil {
 			return 0, zaks, err
 		}
@@ -2120,7 +2282,7 @@ func GetZakaz(num string, page int, gate int, sortfield string, sortorder string
 			zaks = append(zaks, z)
 			z = Zakaz{}
 			z.Period = pr
-			z.DelivPeriod = nextper
+			z.DelivPeriod = delivper
 			z.Num = numdoc
 			z.Provider = provider
 			if pname.Valid {
@@ -2136,7 +2298,7 @@ func GetZakaz(num string, page int, gate int, sortfield string, sortorder string
 		//инициализация значений, первая запись
 		if z.Provider == "" {
 			z.Period = pr
-			z.DelivPeriod = nextper
+			z.DelivPeriod = delivper
 			z.Num = numdoc
 			z.Provider = provider
 			z.Recipient = store
@@ -2228,19 +2390,19 @@ func GetZakazXML(period string) ([]OrderXML, error) {
 		period = pret
 	}
 
-	rows, err = DB.Query("Select uidStore, uidGoods, provider, period, cnt, nextper, NumDoc from oper WHERE date(period)=date($1) ORDER BY NumDoc,provider,uidStore;", period)
+	rows, err = DB.Query("Select uidStore, uidGoods, provider, period, cnt, delivery, NumDoc from oper WHERE date(period)=date($1) ORDER BY NumDoc,provider,uidStore;", period)
 	if err != nil {
 		return orders, err
 		//log.Panic(err)
 	}
 	defer rows.Close()
-	var store, goods, provider, pr, nextper, numdoc, prevnum, prevprov, prevstore string
+	var store, goods, provider, pr, delivery, numdoc, prevnum, prevprov, prevstore string
 	var cnt sql.NullFloat64
 	order := OrderXML{}
 	item := ItemXML{}
 	itemsxml := ItemsXML{}
 	for rows.Next() {
-		err := rows.Scan(&store, &goods, &provider, &pr, &cnt, &nextper, &numdoc)
+		err := rows.Scan(&store, &goods, &provider, &pr, &cnt, &delivery, &numdoc)
 		if err != nil {
 			return orders, err
 		}
@@ -2252,7 +2414,7 @@ func GetZakazXML(period string) ([]OrderXML, error) {
 			orders = append(orders, order)
 			order = OrderXML{}
 			order.Period = pr
-			order.DelivPeriod = nextper
+			order.DelivPeriod = delivery
 			order.Num = numdoc
 			order.Provider = provider
 			order.Recipient = store
@@ -2261,7 +2423,7 @@ func GetZakazXML(period string) ([]OrderXML, error) {
 		//для первой итерации
 		if order.Provider == "" {
 			order.Period = pr
-			order.DelivPeriod = nextper
+			order.DelivPeriod = delivery
 			order.Num = numdoc
 			order.Provider = provider
 			order.Recipient = store
@@ -2455,7 +2617,7 @@ func GetSaleStat(uidStores, uidGoods string, days int) (map[string]float64, erro
 }
 
 //GetCenterMatrix собирает матрицу товаров для распределительного склада
-func GetCenterMatrix(uidGoods string, uidProvider string) (mg []MatrixGoods, err error) {
+func GetCenterMatrix(uidProvider, uidGoods string) (mg []MatrixGoods, err error) {
 	var rows *sql.Rows
 	//var Tx *sql.Tx
 	mg = make([]MatrixGoods, 0, 250)
@@ -2475,10 +2637,14 @@ func GetCenterMatrix(uidGoods string, uidProvider string) (mg []MatrixGoods, err
 		//если баланс помагазину больше минимального, то уменьшвем бадланс до минимального. Олеги тпк хотят,
 		//например в одной точке скопилось оч много товара, а в других его нет. Тогда у поставщика ничего не закажет
 		//поскольку по сети товара достаточно, но в других то магазинах нет ничего...  sum(CASE WHEN z.balance>z.minbalance THEN z.minbalance ELSE z.balance END) as balance,
-		rows, err = DB.Query(`SELECT z.uidgoods, sum(z.balance) as balance, sum(CASE WHEN z.balance<z.minbalance THEN z.minbalance-z.balance ELSE 0 END ) as need,
-		sum(z.minbalance) as minbalance, 9999999 as maxbalance, sum(z.vitrina) as vitrina, sum(z.demand) as demand from 
-		(SELECT sm.uidStore, sm.uidgoods, sm.minbalance as minbalance, sm.maxbalance as maxbalance, sm.vitrina as vitrina, IfNULL(l.balance,0) as balance, IfNULL(sm.demand,0) as demand from salesmatrix sm join (select g.uidStore, g.uidGoods,g.period, g.balance from goodsmov g where g.id in (
-			select max(m.id) from goodsmov m join stores st on st.uid=m.uidStore where st.tip>-1 and m.uidgoods in (select uidgoods from contractgoods where uidprovider='` + Escape(uidProvider) + `') group by m.uidStore, m.uidGoods)) as l on sm.uidStore=l.uidStore and sm.uidgoods=l.uidgoods where sm.uidgoods in (select uidgoods from contractgoods where uidprovider='` + Escape(uidProvider) + `') and sm.inuse=1) as z GROUP BY z.uidgoods;`)
+		rows, err = DB.Query(`Select s.uidStore, s.uidGoods, s.minbalance, s.maxbalance, ifnull(s.abc,'C') as abc, s.vitrina, ifnull(z.balance,0.0) as balance, ifnull(strftime('%Y-%m-%d',z.period),'1970-01-01') as lastdeal,
+			ifnull(s.predictper,'1970-01-01') as predictper , ifnull(s.midcnt,0.0) as midcnt, ifnull(s.midperiod,0.0) as preddays, ifnull(s.demand,0.0) as preddemand, 
+			ifnull(s.sigmaday,0.0) as sigmaday,ifnull(s.sigmacnt,0.0) as sigmacnt, s.step
+			from salesmatrix s LEFT JOIN
+			(select g.uidStore, g.uidGoods,g.period, g.balance from goodsmov g where g.id in 
+			(select max(m.id) from goodsmov m where m.uidgoods in (select uidgoods from contractgoods where uidprovider=$1) group by m.uidStore, m.uidGoods)) as z on s.uidStore=z.uidStore and s.uidgoods=z.uidgoods
+			where s.uidgoods in (select uidgoods from contractgoods where uidprovider=$2) and s.inuse=1 
+			and s.uidStore in (select uid from stores where tip>-1) ORDER BY z.uidgoods;`, uidProvider, uidProvider)
 
 	} else {
 		//если у провайдера этого товара нет, то вернем пустую матрицу
@@ -2487,16 +2653,25 @@ func GetCenterMatrix(uidGoods string, uidProvider string) (mg []MatrixGoods, err
 		//	return mg, nil
 		//}
 		/*
-			_, err = Tx.Exec(`CREATE TEMP TABLE lastbalance as
-			select g.uidStore, g.uidGoods,g.period, g.balance from goodsmov g where g.uidGoods=$2 and g.id in (
-			select max(m.id) from goodsmov m where m.uidgoods in (select uidgoods from contractgoods where uidprovider=$1 and uidgoods=$2) group by m.uidStore, m.uidGoods);`, uidProvider, uidGoods)
-			if err != nil {
-				return mg, err
-			}
+				_, err = Tx.Exec(`CREATE TEMP TABLE lastbalance as
+				select g.uidStore, g.uidGoods,g.period, g.balance from goodsmov g where g.uidGoods=$2 and g.id in (
+				select max(m.id) from goodsmov m where m.uidgoods in (select uidgoods from contractgoods where uidprovider=$1 and uidgoods=$2) group by m.uidStore, m.uidGoods);`, uidProvider, uidGoods)
+				if err != nil {
+					return mg, err
+				}
+
+			rows, err = DB.Query(`SELECT z.uidgoods, sum(z.balance) as balance, sum(CASE WHEN z.balance<z.minbalance THEN z.minbalance-z.balance ELSE 0 END ) as need, sum(z.minbalance) as minbalance, 9999999 as maxbalance, sum(z.vitrina) as vitrina, sum(z.demand) as demand from
+				(SELECT sm.uidStore, sm.uidgoods, sm.minbalance as minbalance, sm.maxbalance as maxbalance, sm.vitrina as vitrina, IfNULL(l.balance,0) as balance, IfNULL(sm.demand,0) as demand from salesmatrix sm left join (select g.uidStore, g.uidGoods,g.period, g.balance from goodsmov g where g.uidGoods='` + Escape(uidGoods) + `' and g.id in (
+				select max(m.id) from goodsmov m join stores st on st.uid=m.uidStore where st.tip>-1 and m.uidgoods in (select uidgoods from contractgoods where uidprovider='` + Escape(uidProvider) + `' and uidgoods='` + Escape(uidGoods) + `') group by m.uidStore, m.uidGoods)) as l on sm.uidStore=l.uidStore and sm.uidgoods=l.uidgoods where sm.uidgoods in (select uidgoods from contractgoods where uidprovider='` + Escape(uidProvider) + `' and uidgoods='` + Escape(uidGoods) + `') and sm.inuse=1) as z GROUP BY z.uidgoods;`)
 		*/
-		rows, err = DB.Query(`SELECT z.uidgoods, sum(z.balance) as balance, sum(CASE WHEN z.balance<z.minbalance THEN z.minbalance-z.balance ELSE 0 END ) as need, sum(z.minbalance) as minbalance, 9999999 as maxbalance, sum(z.vitrina) as vitrina, sum(z.demand) as demand from
-			(SELECT sm.uidStore, sm.uidgoods, sm.minbalance as minbalance, sm.maxbalance as maxbalance, sm.vitrina as vitrina, IfNULL(l.balance,0) as balance, IfNULL(sm.demand,0) as demand from salesmatrix sm join (select g.uidStore, g.uidGoods,g.period, g.balance from goodsmov g where g.uidGoods='` + Escape(uidGoods) + `' and g.id in (
-			select max(m.id) from goodsmov m join stores st on st.uid=m.uidStore where st.tip>-1 and m.uidgoods in (select uidgoods from contractgoods where uidprovider='` + Escape(uidProvider) + `' and uidgoods='` + Escape(uidGoods) + `') group by m.uidStore, m.uidGoods)) as l on sm.uidStore=l.uidStore and sm.uidgoods=l.uidgoods where sm.uidgoods in (select uidgoods from contractgoods where uidprovider='` + Escape(uidProvider) + `' and uidgoods='` + Escape(uidGoods) + `') and sm.inuse=1) as z GROUP BY z.uidgoods;`)
+		rows, err = DB.Query(`Select s.uidStore, s.uidGoods, s.minbalance, s.maxbalance, ifnull(s.abc,'C') as abc, s.vitrina, ifnull(z.balance,0.0) as balance, ifnull(strftime('%Y-%m-%d',z.period),'1970-01-01') as lastdeal,
+			ifnull(s.predictper,'1970-01-01') as predictper , ifnull(s.midcnt,0.0) as midcnt, ifnull(s.midperiod,0.0) as preddays, ifnull(s.demand,0.0) as preddemand, 
+			ifnull(s.sigmaday,0.0) as sigmaday,ifnull(s.sigmacnt,0.0) as sigmacnt, s.step
+			from salesmatrix s LEFT JOIN
+			(select g.uidStore, g.uidGoods,g.period, g.balance from goodsmov g where g.id in 
+			(select max(m.id) from goodsmov m where m.uidgoods in (select uidgoods from contractgoods where uidprovider=$1) group by m.uidStore, m.uidGoods)) as z on s.uidStore=z.uidStore and s.uidgoods=z.uidgoods
+			where s.uidgoods in (select uidgoods from contractgoods where uidprovider=$2 and uidgoods=$3) and s.inuse=1 
+			and s.uidStore in (select uid from stores where tip>-1) ORDER BY z.uidgoods;`, uidProvider, uidProvider, uidGoods)
 	}
 
 	if err != nil {
@@ -2506,18 +2681,47 @@ func GetCenterMatrix(uidGoods string, uidProvider string) (mg []MatrixGoods, err
 	//defer Tx.Exec(`DROP TABLE IF EXISTS TEMP.lastbalance;`)
 	defer rows.Close()
 
+	var balance sql.NullFloat64
+	var sigmaday sql.NullFloat64
+	var sigmacnt sql.NullFloat64
+	var nfd sql.NullFloat64
+	var abc sql.NullString
+	var predictper sql.NullString
 	for rows.Next() {
 		lmg := MatrixGoods{}
-		var need sql.NullFloat64
-		err := rows.Scan(&lmg.KeyGoods, &lmg.Balance, &need, &lmg.MinBalance, &lmg.MaxBalance, &lmg.Vitrina, &lmg.PredDemand)
+		err := rows.Scan(&lmg.KeyStore, &lmg.KeyGoods, &lmg.MinBalance, &lmg.MaxBalance, &abc, &lmg.Vitrina, &balance, &lmg.Lastdeal, &predictper, &lmg.PredCnt, &lmg.PredDays, &nfd, &sigmaday, &sigmacnt, &lmg.Step)
 		if err != nil {
 			return mg, err
 		}
-		lmg.PredPeriod = time.Now().Format("2006-01-02")
-		lmg.PredDays = 30
-		lmg.PredCnt = lmg.PredDemand * 30.0
-		if need.Valid {
-			lmg.Need = need.Float64
+		if balance.Valid {
+			lmg.Balance = balance.Float64
+		} else {
+			lmg.Balance = 0.0
+		}
+		if nfd.Valid {
+			lmg.PredDemand = nfd.Float64
+		} else {
+			lmg.PredDemand = 0.0
+		}
+		if abc.Valid {
+			lmg.Abc = abc.String
+		} else {
+			lmg.Abc = "C"
+		}
+		if predictper.Valid {
+			lmg.PredPeriod = predictper.String
+		} else {
+			lmg.PredPeriod = "1970-01-01"
+		}
+		if sigmaday.Valid {
+			lmg.Sigmadays = sigmaday.Float64
+		} else {
+			lmg.Sigmadays = 0
+		}
+		if sigmacnt.Valid {
+			lmg.Sigmacnt = sigmacnt.Float64
+		} else {
+			lmg.Sigmacnt = 0.0
 		}
 		mg = append(mg, lmg)
 	}
@@ -2548,4 +2752,300 @@ func GetProviderGoods(uidProvider string, uidGoods string) (gds map[string]Goods
 		gds[lg.KeyGoods] = lg
 	}
 	return gds, nil
+}
+
+//SetCalendar устанавливает календарь
+func SetCalendar(uid, from, to string) error {
+	//1 удалим
+	if len(uid) == 0 {
+		DB.Exec("Delete from calendar where date(period)>=date($1) and date(period)<=date($2)", from, to)
+	} else {
+		DB.Exec("Delete from calendar where date(period)>=date($1) and date(period)<=date($2) and uid=$3", from, to, uid)
+	}
+	start, err := time.Parse("2006-01-02", from)
+	if err != nil {
+		start = time.Now().AddDate(0, 0, -360)
+		from = start.Format("2006-01-02")
+	}
+	end, err := time.Parse("2006-01-02", to)
+	if err != nil {
+		end = time.Now()
+		to = end.Format("2006-01-02")
+	}
+	//разница в днях
+	difference := int((end.Sub(start).Round(time.Hour) / time.Hour) / 24)
+	_, nw := start.ISOWeek()
+	q := "INSERT OR REPLACE INTO calendar (uid,period,numperiod,weekdate,numweek,workday) VALUES('" + uid + "','" + start.Format("2006-01-02") + "', " + strconv.FormatInt(int64(start.YearDay()/10)+1, 10) + ", " + strconv.FormatInt(int64(start.Weekday()), 10) + ", " + strconv.FormatInt(int64(nw), 10) + " ,1);"
+	for i := 1; i < difference; i++ {
+		cur := start.AddDate(0, 0, i)
+		wd := int(cur.Weekday()) //деньнед
+		wks := "1"
+		switch uid {
+		case "5d":
+			if wd == 0 || wd == 6 || wd == 7 {
+				wks = "0"
+			}
+		case "6d":
+			if wd == 0 || wd == 7 {
+				wks = "0"
+			}
+		}
+
+		per := int(cur.YearDay()/10) + 1 //декада
+		_, nw = cur.ISOWeek()            //год,номер недели
+		q = q + "INSERT OR REPLACE INTO calendar (uid,period,numperiod,weekdate,numweek,workday) VALUES('" + uid + "','" + cur.Format("2006-01-02") + "', " + strconv.FormatInt(int64(per), 10) + ", " + strconv.FormatInt(int64(wd), 10) + ", " + strconv.FormatInt(int64(nw), 10) + "," + wks + ");"
+	}
+	q = "BEGIN TRANSACTION;" + q + "COMMIT TRANSACTION;"
+	_, err = DB.Exec(q)
+	if err != nil {
+		DB.Exec("ROLLBACK TRANSACTION;")
+		return err
+	}
+	return nil
+}
+
+func get_variance(data []float64) (variance, mean, max, median float64) {
+	var n, sum1, sum2 float64
+	if len(data) == 0 {
+		return
+	}
+	if len(data) == 1 {
+		variance = 0
+		mean = data[0]
+		median = data[0]
+		max = data[0]
+		return
+	}
+
+	for _, x := range data {
+		n += 1
+		sum1 += x
+		if max < x {
+			max = x
+		}
+	}
+	mean = sum1 / n
+
+	for _, x := range data {
+		sum2 += (x - mean) * (x - mean)
+	}
+	variance = math.Sqrt(sum2 / (n - 1))
+	//удалим выбросы по методу Шовене
+	ndata := make([]float64, 0, len(data))
+	for _, x := range data {
+		//помним, что внутри двух сигма с вероятностью 95% лежат все значения, если это гаусс
+		if math.Abs(x-mean) < 2*variance {
+			//наше
+			ndata = append(ndata, x)
+		}
+	}
+	//теперь найдем новые mean и сигма
+	if len(ndata) != len(data) {
+		max = 0
+		for _, x := range ndata {
+			n += 1
+			sum1 += x
+			if max < x {
+				max = x
+			}
+		}
+		mean = sum1 / n
+
+		for _, x := range ndata {
+			sum2 += (x - mean) * (x - mean)
+		}
+		variance = math.Sqrt(sum2 / (n - 1))
+	}
+	//найдем медиану
+	sort.Float64s(ndata)
+	x := int(len(ndata) / 2)
+	if 2*x == len(ndata) {
+		median = (ndata[x] + ndata[x+1]) / 2
+	} else {
+		median = ndata[x+1]
+	}
+	return
+}
+
+//GetFNSales возвращает движения из таблицы goodsmov для сети
+func GetFNSales(kStore string, kGoods string, p1, p2, cal string) (*FNSales, error) {
+
+	var err error
+	var rows *sql.Rows
+	s := new(FNSales)
+	s.KeyStore = kStore
+	s.KeyGoods = kGoods
+	type SaleRaw struct {
+		period, y, m, numper, numweek, balance, sm, profit, cnt, mov interface{}
+	}
+	if cal == "" {
+		cal = "7d"
+	}
+
+	rows, err = DB.Query(`select c.period, CAST(strftime('%Y', c.period) AS INTEGER) as y, CAST(strftime('%m', c.period) AS INTEGER) as m, c.numperiod, c.numweek, CAST(ifnull(s.balance,0) AS REAL) as balance, CAST(ifnull(s.sm,0) AS REAL) as sm, CAST(ifnull(s.profit,0) AS REAL) as profit, CAST(ifnull(s.cnt,0) AS REAL) as cnt, ifnull(s.mov,0) as mov from calendar c
+		left join
+		(select  date(m.period) as period, sum(CASE WHEN m.tipmov='S' THEN m.cnt ELSE 0 END) as cnt, sum(m.summa) as sm, sum(m.summa*m.margin) as profit, avg(m.balance) as balance, 1 as mov 
+		from goodsmov m  
+		where m.uidStore=$1 and m.uidGoods=$2 and date(m.period)>=date($3) and date(m.period)<date($4) 
+		group by date(m.period) 
+		) as s on c.period=s.period
+		where date(c.period)>=date($5) and date(c.period)<date($6) and c.workday=1 and c.uid=$7 order by c.period;`, kStore, kGoods, p1, p2, p1, p2, cal)
+
+	if err != nil {
+		return s, err
+		//log.Panic(err)
+	}
+	defer rows.Close()
+	sd := SaleData{}
+	itd := SaleData{}
+	stat := make(map[string]float64)
+	var sr SaleRaw
+	var (
+		//blnc баланс
+		blnc   float64
+		itblnc float64
+		//cnt количество проданного
+		cnt float64
+		//itcnt накопительное значение проданного количества
+		itcnt float64
+		//oldm месяц прошлого считывания
+		oldm int64
+		itwd int64
+		//дней отсутствия товара
+		d0   int64
+		itd0 int64
+		//дней от предыдущей сделки
+		dfrom int64
+		//колич сделок
+		deals int64
+		//wdaysinsel рабочих дне в продаже (когда остаток>0)
+		wdaysinsel int64
+		//сумма сделок
+		sm float64
+		//прибыль
+		profit   float64
+		itsm     float64
+		itprofit float64
+		per      string
+		oldper   string
+	)
+	//частота покупок
+	vd := make([]float64, 0, 720)
+	//количество прокупок для статистики
+	vcnt := make([]float64, 0, 720)
+	for rows.Next() {
+		err := rows.Scan(&sr.period, &sr.y, &sr.m, &sr.numper, &sr.numweek, &sr.balance, &sr.sm, &sr.profit, &sr.cnt, &sr.mov)
+		if err != nil {
+			return s, err
+		}
+		per = sr.period.(string)
+		if sr.mov.(int64) > 0 {
+			blnc = sr.balance.(float64)
+		}
+		cnt = sr.cnt.(float64)
+		curm := sr.m.(int64)
+		//sm = sr.sm.(float64)
+		//profit = sr.profit.(float64)
+		//возвраты, когда cnt<0 за сделку не считаем
+		if cnt > 0 {
+			deals++
+			sm = sr.sm.(float64)
+			profit = sr.profit.(float64)
+			t, err := time.Parse("2006-01-02", per)
+			if err == nil {
+				s.Lastdeal = (t.Unix() / 86400) //номер дня от unix эры
+			}
+			//заполним срез количества
+			vcnt = append(vcnt, cnt)
+			if s.Firstdeal == 0 {
+				s.Firstdeal = s.Lastdeal
+				dfrom = 0
+				wdaysinsel = 0
+			} else {
+				//заполним срез частоты покупок
+				vd = append(vd, float64(dfrom))
+			}
+			s.LastSum = sm / cnt
+			s.LastMargin = profit / sm
+			sd.Per = per
+			sd.Empt = int(d0)
+			sd.Balance = blnc
+			sd.Cnt = cnt
+			sd.Profit = profit
+			sd.Sm = sm
+			sd.Wdays = int(dfrom)
+			s.Sdata = append(s.Sdata, sd)
+			sd = SaleData{}
+			dfrom = 0
+		} else if cnt < 0 {
+			sd.Per = per
+			sd.Empt = int(d0)
+			sd.Balance = blnc
+			sd.Cnt = cnt
+			sd.Profit = profit
+			sd.Sm = sm
+			sd.Wdays = int(dfrom)
+			s.Sdata = append(s.Sdata, sd)
+			sd = SaleData{}
+		} else {
+			sm = 0.0
+			profit = 0.0
+		}
+
+		//группировка итогов по месяцам
+		if s.Firstdeal != 0 && itwd > 0 && (oldm != curm) {
+			itd.Per = oldper[:8] + "01"
+			itd.Cnt = itcnt
+			itd.Balance = itblnc / float64(itwd)
+			itd.Empt = int(itd0)
+			itd.Sm = itsm
+			itd.Profit = itprofit
+			itd.Wdays = int(itwd)
+			s.Itdata = append(s.Itdata, itd)
+			itd = SaleData{}
+			itcnt = 0
+			itsm = 0
+			itprofit = 0
+			itd0 = 0
+			itwd = 0
+			itblnc = 0
+		}
+
+		itwd++
+		dfrom++
+		itcnt += cnt
+		itsm += sm
+		itprofit += profit
+		oldm = curm
+		oldper = per
+		itblnc = itblnc + blnc
+		if blnc == 0 {
+			d0++
+			itd0++
+		} else {
+			wdaysinsel++
+		}
+	}
+	//заполним последний
+	vd = append(vd, float64(dfrom))
+	//группировка итогов по месяцам
+	if itwd > 0 {
+		itd.Per = per[:8] + "01"
+		itd.Cnt = itcnt
+		itd.Balance = itblnc / float64(itwd)
+		itd.Empt = int(itd0)
+		itd.Sm = itsm
+		itd.Profit = itprofit
+		itd.Wdays = int(itwd)
+		s.Itdata = append(s.Itdata, itd)
+	}
+	s.LastBalance = blnc
+	stat[Deals] = float64(deals)
+	stat[MeanCnt], stat[SigmaCnt], stat[MaxCnt], stat[MedianCnt] = get_variance(vcnt)
+	stat[MeanDays], stat[SigmaDays], stat[MaxDays], stat[MedianDays] = get_variance(vd)
+	if wdaysinsel > 50 && deals > 35 {
+		stat[MeanDays], stat[SigmaDays], _, stat[MedianDays] = get_variance(vd[len(vd)-35:])
+	}
+	s.Stat = stat
+	return s, nil
 }
